@@ -1,17 +1,17 @@
 {
-  "name": "dsh-remote-mp",
+  "name": "@dsh-remote/client",
   "version": "2.0.21",
   "private": true,
-  "description": "DSH Remote Control —— 微信小程序控制端：扫码配对主机，发指令、看流式输出、回答审批。",
+  "description": "DSH Remote Control 的微信小程序客户端：扫码配对主机，发指令、看流式输出、回答审批。",
   "license": "MIT",
-  "author": "providcc",
+  "author": "dsh-remote",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/providcc/dsh-remote-mp.git"
+    "url": "git+https://github.com/dsh-remote/dsh-remote-client.git"
   },
-  "homepage": "https://github.com/providcc/dsh-remote-mp#readme",
+  "homepage": "https://github.com/dsh-remote/dsh-remote-client#readme",
   "bugs": {
-    "url": "https://github.com/providcc/dsh-remote-mp/issues"
+    "url": "https://github.com/dsh-remote/dsh-remote-client/issues"
   },
   "keywords": [
     "dsh",
