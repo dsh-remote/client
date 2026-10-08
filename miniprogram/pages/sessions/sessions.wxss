@@ -1,0 +1,553 @@
+/* sessions 页：组件之外只剩少量布局。
+   颜色一律走 TDesign 变量：主题按 prefers-color-scheme 自动切换，
+   写死 #fff 的话在深色模式手机上会变成白底白字。 */
+
+/* ── 未配对：扫码入口 + 折叠的手动输入 ──────────────────────────────
+   原来这里还有一张三步说明卡（hero-steps）。删掉 pair 页之后，表单已经没了，
+   那三步是在给一张已经不存在的表单写说明书 —— 留着只是占版面。 */
+.hero {
+  padding-top: 56rpx;
+}
+
+.hero-mark {
+  width: 96rpx;
+  height: 96rpx;
+  margin: 0 auto 24rpx;
+  border-radius: 24rpx;
+  background: var(--td-brand-color, #0052d9);
+  color: var(--td-text-color-anti, #ffffff);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 32rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-title {
+  text-align: center;
+  font-size: 40rpx;
+  font-weight: 500;
+}
+
+.hero-desc {
+  margin: 16rpx 8rpx 8rpx;
+  text-align: center;
+  font-size: 26rpx;
+  line-height: 40rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+.hero-note {
+  margin-top: 20rpx;
+  text-align: center;
+}
+
+/* 手动输入的开关。纯 CSS 三角，展开时翻转 —— 比两个纯文字更能提示可折叠 */
+.manual-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 28rpx;
+  padding: 16rpx;
+  font-size: 26rpx;
+  color: var(--td-brand-color-on-tint, #0052d9);
+}
+
+.caret {
+  width: 0;
+  height: 0;
+  margin-right: 12rpx;
+  border-left: 10rpx solid transparent;
+  border-right: 10rpx solid transparent;
+  border-top: 12rpx solid var(--td-brand-color, #0052d9);
+  transition: transform 0.2s ease;
+}
+
+.caret.up {
+  transform: rotate(180deg);
+}
+
+.manual {
+  margin-top: 8rpx;
+  padding: 28rpx;
+}
+
+.manual-label {
+  font-size: 24rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+  margin-bottom: 12rpx;
+}
+
+.manual-label + .field-box,
+.manual-label + .code-box {
+  margin-bottom: 28rpx;
+}
+
+/* 输入行：浅底嵌入卡片，看上去就是个可输入的框。
+   input 必须显式 height：靠上下 padding 撑高会把文字垂直裁掉（真机实证）。 */
+.field-box {
+  display: flex;
+  align-items: center;
+  height: 96rpx;
+  padding: 0 16rpx 0 24rpx;
+  border-radius: 16rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.field-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 96rpx;
+  line-height: 96rpx;
+  font-size: 28rpx;
+  color: var(--td-text-color-primary, #1f2329);
+}
+
+.field-ph {
+  font-size: 28rpx;
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+.field-clear {
+  flex: 0 0 auto;
+  width: 52rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+  text-align: center;
+  margin-left: 12rpx;
+  border-radius: 50%;
+  background: var(--td-bg-color-component, #e7e7e7);
+  color: var(--td-text-color-placeholder, #a0a6b0);
+  font-size: 24rpx;
+}
+
+/* 读剪贴板：不必让用户长按输入框去粘，点一下就行 */
+.field-paste {
+  flex: 0 0 auto;
+  height: 56rpx;
+  line-height: 56rpx;
+  padding: 0 24rpx;
+  margin-left: 12rpx;
+  border-radius: 999rpx;
+  background: var(--td-bg-color-container, #ffffff);
+  color: var(--td-brand-color-on-tint, #0052d9);
+  font-size: 24rpx;
+}
+
+/* 6 位配对码：大号居中，配一排进度点 */
+.code-box {
+  padding: 16rpx 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.code-input {
+  width: 100%;
+  height: 104rpx;
+  line-height: 104rpx;
+  text-align: center;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 56rpx;
+  letter-spacing: 20rpx;
+  /* letter-spacing 会在最后一个字符后面也留一格，往左挪一点视觉才居中 */
+  padding-left: 20rpx;
+  color: var(--td-text-color-primary, #1f2329);
+}
+
+.code-ph {
+  font-size: 40rpx;
+  letter-spacing: 16rpx;
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+.code-scale {
+  display: flex;
+  justify-content: center;
+  margin-top: 8rpx;
+}
+
+.code-pip {
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 3rpx;
+  margin: 0 6rpx;
+  background: var(--td-component-border, #dcdcdc);
+}
+
+.code-pip.on {
+  background: var(--td-brand-color, #0052d9);
+}
+
+.foot-note {
+  margin-top: 24rpx;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 34rpx;
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+/* 环境缺能力的警示卡 */
+.warn {
+  background: var(--td-error-color-1, #fff0ed);
+  border-color: var(--td-error-color-3, #ffb9b0);
+  padding: 24rpx;
+  margin-top: 24rpx;
+}
+
+.warn-title {
+  font-size: 30rpx;
+  font-weight: 500;
+  margin-bottom: 12rpx;
+  color: var(--td-error-color-6, #d54941);
+}
+
+.warn-text {
+  font-size: 26rpx;
+  line-height: 40rpx;
+  color: var(--td-text-color-primary, #1f2329);
+}
+
+.btn-gap {
+  margin-top: 32rpx;
+}
+
+/* ── 主机卡 ─────────────────────────────────────────────────────── */
+.host {
+  padding: 28rpx;
+}
+
+.host-head {
+  display: flex;
+  align-items: center;
+}
+
+/* 颜色来自 app.wxss 的 .dot；这里只管间距 */
+.host-head .dot {
+  margin-right: 14rpx;
+}
+
+.host-name {
+  flex: 1 1 auto;
+  font-size: 32rpx;
+  font-weight: 500;
+}
+
+/* 主机卡里最后一行：下边距交给 .host 的padding，这里保持 0 */
+.host-sub {
+  margin: 12rpx 0 0 30rpx;
+  font-size: 24rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+/* 主机卡里的「解除配对」（2026-10-04 从页面底部挪进来）。
+   卡片回答的是"这台主机通不通"，"不要这台了"就属于这张卡——
+   原来沉在页面最底部，旁边还挨着一颗多余的入口（已删）。 */
+.host-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 2rpx solid var(--td-component-border, #dcdcdc);
+}
+
+/* 破坏性动作但**不当主角**：不用实心红（这一页的主动作是新建会话，
+   实心红会抢），浅红底 + 红字，扫一眼知道"这个会断"就够了。
+   颜色与 app.wxss 里那颗 error 角标同一对 token（对比度检查认这两条）。 */
+.host-danger {
+  padding: 8rpx 24rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  background: var(--td-error-color-1, #fff0ed);
+  color: var(--td-error-color-6, #d54941);
+}
+
+/* ── 会话列表 ───────────────────────────────────────────────────── */
+.section-title {
+  display: flex;
+  align-items: center;
+}
+
+.section-count {
+  margin-left: 12rpx;
+  padding: 2rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+/* 「＋ 新建会话」。它是这一页的主动作，但**不做成实心大按钮** ——
+   一屏里已经有一张主机卡，再放一个实心主按钮就会和它抢注意力（skill 坑位 8），
+   所以用 tonal（浅品牌底 + 品牌字）这一档。 */
+.section-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  height: 56rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  background: var(--td-brand-color-1, #f2f3ff);
+  color: var(--td-brand-color-on-tint, #0052d9);
+}
+
+/* 没连上时置灰：**能看见、能点，点了会说为什么**。
+   直接藏起来看着更干净，但用户不知道去哪找，也不知道为什么没有。 */
+.section-action.off {
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+.section-action.busy {
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+  color: var(--td-text-color-secondary, #666);
+}
+
+/* 转圈：CSS 画，不引图标字体（图标字体走远程 CDN，拉不到就是空白方块） */
+.new-spin {
+  width: 20rpx;
+  height: 20rpx;
+  margin-right: 10rpx;
+  border: 3rpx solid var(--td-component-border, #dcdcdc);
+  border-top-color: var(--td-brand-color, #0052d9);
+  border-radius: 50%;
+  animation: new-spin 0.8s linear infinite;
+}
+
+@keyframes new-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-card {
+  padding: 32rpx 0 16rpx;
+}
+
+/* 归档会话被过滤掉时的一句说明（居中、弱化，别抢会话行的注意力） */
+.hidden-note {
+  margin-top: 20rpx;
+  text-align: center;
+  font-size: 22rpx;
+  line-height: 34rpx;
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+.sess {
+  display: flex;
+  /* flex-start：两行文字比 64rpx 的色条高，center 会让色条悬在中间。 */
+  align-items: flex-start;
+  padding: 24rpx 24rpx 24rpx 0;
+}
+
+
+/* 左侧状态色条：一整张卡里的一行，所以只需要对着这一行的高度。
+   通高（stretch）是 10-05 白天"一会话一卡"那版的产物——那张每行自成一个
+   卡片，色条要当卡片的完整边。现在回到一张大卡，色条回到 64rpx。
+   圆角只给右侧：左边被父级 overflow:hidden 切出卡片的圆角。 */
+.sess-bar {
+  flex: 0 0 auto;
+  width: 8rpx;
+  height: 64rpx;
+  border-radius: 0 8rpx 8rpx 0;
+}
+
+/* 行与行之间的细线。1.1.16 曾把它删掉改成一会话一卡，
+   用户明确说"还是原来的样式（不要卡片）"，所以它回来了。
+   左边留 30rpx 缩进：贴着色条太挤，也跟卡片的圆角打架。 */
+.sess-line {
+  height: 2rpx;
+  margin-left: 30rpx;
+  background: var(--td-component-border, #dcdcdc);
+}
+
+/* 左侧色条的三个颜色档，由 `item.badgeTheme` 选（js 里 badgeFor 只产出
+   primary/default，warning 是**留着一档**：主机侧补齐 awaiting-* 之后
+   待审批/待回答要用它，而"有的档有颜色、有的档没有"会让色条在某个状态下
+   变成空白 —— 那看起来像布局坏了。留着这一行零成本，删掉反而会埋一个坑。 */
+.sess-bar.primary { background: var(--td-brand-color, #0052d9); }
+.sess-bar.warning { background: var(--td-warning-color, #e37318); }
+.sess-bar.default { background: transparent; }
+
+.sess-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 22rpx;
+}
+
+
+/* 标题：第一行里占比最大的那块。flex:1 让它把徽挤到右边后剩下的全占，
+   min-width:0 是 ellipsis 能生效的前提（flex 子项默认不会窄于内容宽）。 */
+.sess-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 30rpx;
+  line-height: 42rpx;
+}
+
+/* 第一行：标题 + 状态徽标。两者都是"这条现在怎么了"，所以一行。 */
+.sess-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 第二行：项目名 + 时间。 */
+.sess-meta {
+  display: flex;
+  align-items: center;
+  margin-top: 6rpx;
+  min-width: 0;
+}
+
+/* 项目名：品牌色圆点 + 24rpx 深灰文字（2026-10-05 用户：去掉路径只保留项目，
+   强化样式，"不一定要用标签形式"，重新设计）。
+   它改过四轮，都记在这里：
+   - 10-04         标题右边的品牌蓝 chip   -> 抢标题宽度
+   - 10-05 上午    单独一行的 chip        -> 行高撑成三行
+   - 10-05 下午    右上角纯文字           -> 用户：一点样式都没有
+   - 10-05 下午    第二行描边胶囊+全路径   -> 用户：去掉路径、强化、别用标签形
+   这一轮的强化在**字号和字色**，不再靠描边/底色：
+   - 20rpx -> 24rpx：跟时间（20rpx）拉开一档，仍小于标题（30rpx）。
+   - placeholder(#a0a6b0) -> text-color-secondary(#5c6470)：深一档，
+     读得清，但不去抢标题的近黑。
+   - 左侧 12rpx 实心圆点用品牌色，给"这是哪一间屋子"一个视觉锚点。
+     圆点是 CSS 画的（border-radius + background），不用图标字体——
+     这一页一个图标都没有，真机缺字形时会变成空白方块。
+   ⚠️ 不再用胶囊的原因：胶囊把项目名关在方块里，字号顶到 20rpx 就挤。
+      路径去掉后这一行只剩它和时间，横向空间够，文字才吃得下 24rpx。 */
+.sess-project {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.sess-project-dot {
+  flex: 0 0 auto;
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 12rpx;
+  border-radius: 50%;
+  background: var(--td-brand-color, #0052d9);
+}
+
+/* 名字本身：ellipsis 三件套 + min-width:0 都要，否则长项目名会把时间戳顶掉。
+   （.ellipsis 里已含 min-width:0，这里再写一遍是因为 <text> 作为 flex 子项时，
+    WebKit 某些版本对父级继承来的 min-width 处理不一致——显式写死最稳。） */
+.sess-project-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 24rpx;
+  line-height: 32rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+/* 时间：第二行最右。
+   **margin-left:auto 是关键**：flex 里 auto 外边距会吸走全部剩余空间，
+   把这一项顶到行尾。
+   ⚠️ 全路径（.sess-sub）在的时候靠它的 flex:1 撑开；路径被去掉之后（2026-10-05
+      用户要求），第二行只剩项目名和时间，再没有 flex:1 的项，
+      时间就会紧贴在项目名后面而不是贴右边——那正是本次要修的点。
+   padding-left:20rpx 保证空间被挤满时两者仍有余距（auto margin 会缩到 0，
+   但 padding 不会）。 */
+.sess-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 20rpx;
+  font-size: 20rpx;
+  color: var(--td-text-color-placeholder, #a0a6b0);
+}
+
+/* 状态徽标：第一行最右。实心填色。
+   flex:0 0 auto 保证它不被标题压扁（时间戳也同理）。
+   这套规则整块在 1.1.18 丢过一次：那次删 .sess-tag/.sess-sub 时把这个块
+   一起吃掉了，只剩 .sess-badge.primary .pulse 一条。
+   后果是徽标退回普通块级盒子——里面的 .pulse 没有 flex 容器可待，独占一行，
+   "运行中"三个字被挤到下一行，看着就是点跑到文字上面去了。
+   判据（mp-sessions-list）现在钉住这套规则必须在，防止再被顺手删掉。 */
+.sess-badge {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: 16rpx;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  padding: 2rpx 14rpx;
+  border-radius: 999rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+/* 徽标的三种配色档，由 `item.badgeTheme` 选（wxml 绑的是变量，不是写死的类名）。
+   js 里 badgeFor 现在只产出 primary/default；warning / success 留着是因为
+   ① 主机侧的 awaiting-* 一旦补齐，待审批/待回答要用 warning；
+   ② 每一档都要有配色，缺一档就会出现"某条会话的徽标没有底色"（看起来像渲染坏了）；
+   ③ e2e 有一条判据按名字锁着 `.sess-badge.warning`（删掉它那条会红）。
+   三档都以 `--td-*-color-1` 为底、`-6` 为字：两端主题都过对比度（见 check-mp-contrast）。 */
+.sess-badge.primary {
+  background: var(--td-brand-color-1, #f2f3ff);
+  color: var(--td-brand-color-on-tint, #0052d9);
+}
+
+.sess-badge.warning {
+  background: var(--td-warning-color-1, #fff1e9);
+  color: var(--td-warning-color-6, #be5a00);
+}
+
+.sess-badge.success {
+  background: var(--td-success-color-1, #e3f6e8);
+  color: var(--td-success-color-6, #029e42);
+}
+
+
+
+/* ── 底部：只剩外观切换（配对相关动作 2026-10-04 收进主机卡）────────────────────────────────────
+   放底部而不是顶栏：这些是"偶尔改一次"的设置，顶栏是窗口控制条，
+   塞设置会把运行态的信息挤掉。
+   图形用 CSS 画（半边月 / 圆饼），不用 t-icon —— 图标字体走远程 CDN，
+   拉不到就是一堆空白方块且不报错。 */
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 24rpx;
+}
+
+.theme-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  margin-top: 0;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+  border: 2rpx solid var(--td-component-border, #e7e7e7);
+}
+
+/* 当前是浅色 → 画一个"月牙"，表示"点了变深"；反之画一个"圆饼"。
+   形状与语义对齐：用户看到月亮就知道要去暗色那边。 */
+.theme-glyph {
+  width: 26rpx;
+  height: 26rpx;
+  border-radius: 50%;
+  margin-right: 10rpx;
+}
+
+.theme-glyph.light {
+  background: var(--td-text-color-primary, #1f2329);
+  /* 挖出一个圆：靠 box-shadow 往右偏移投出同色圆盘遮住一部分 */
+  box-shadow: inset -7rpx -3rpx 0 0 var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.theme-glyph.dark {
+  border: 3rpx solid var(--td-text-color-primary, #1f2329);
+  background: transparent;
+}
