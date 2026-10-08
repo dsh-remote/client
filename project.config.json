@@ -1,8 +1,8 @@
 {
-  "description": "DSH Remote Control —— 微信小程序控制端",
+  "description": "DSH Remote Control —— 微信小程序客户端",
   "appid": "wxfe76ed3135e010e3",
-  "projectname": "dsh-remote-mp",
-  "miniprogramRoot": "miniprogram/",
+  "projectname": "dsh-remote-client",
+  "miniprogramRoot": "",
   "compileType": "miniprogram",
   "libVersion": "3.0.0",
   "setting": {

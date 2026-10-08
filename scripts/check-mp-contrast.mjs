@@ -46,7 +46,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const MP = path.join(ROOT, 'miniprogram')
+const MP = ROOT
 
 /* ── 颜色工具 ────────────────────────────────────────────────────────── */
 
@@ -149,7 +149,7 @@ function declColor(decl, vars) {
 
 function parseRules(css) {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  // 去掉 @import 行与 @media/@keyframes 块：@media 里的变量已抽到 miniprogram/theme/
+  // 去掉 @import 行与 @media/@keyframes 块：@media 里的变量已抽到 theme/
   let body = clean.replace(/@import[^;]+;/g, '')
   body = body.replace(/@(?:media|keyframes|font-face)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
   const rules = []
@@ -206,7 +206,7 @@ const FG_ON = {
 
 /** 从 FG_ON 的键反查该文件用哪种写法（容错：写成带 mp/ 前缀也能用） */
 function fgMapFor(rel) {
-  return FG_ON[rel] ?? FG_ON['miniprogram/' + rel] ?? null
+  return FG_ON[rel] ?? FG_ON[rel] ?? null
 }
 
 function declaredBg(rel, sel, rules) {

@@ -21,7 +21,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const MP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'miniprogram')
+const MP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const md = require(path.join(MP, 'core', 'markdown.js'))
 
 /** 递归收集所有节点名（含 type:'text' 的按 text 节点算，不算标签）。 */

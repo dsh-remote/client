@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const MP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'miniprogram')
+const MP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const { ScrollPolicy, BOTTOM_SLOP, REBOUND_MS } = require(path.join(MP, 'core', 'scroll-policy.js'))
 
 /** 夹具：视口 800 高的滚动容器，时钟可拨。 */

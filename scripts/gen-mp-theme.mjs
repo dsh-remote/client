@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 生成 miniprogram/theme/ 下的主题变量表 —— `light.wxss`（默认）与 `dark.wxss`（切暗色时叠加）。
+ * 生成 theme/ 下的主题变量表 —— `light.wxss`（默认）与 `dark.wxss`（切暗色时叠加）。
  *
  * ── 为什么需要它 ─────────────────────────────────────────────────────
  * TDesign 的 `common/style/theme/_index.wxss` 把浅色和深色**两套变量都包在
@@ -61,7 +61,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(
   ROOT,
-  'miniprogram/miniprogram_npm/tdesign-miniprogram/common/style/theme/_index.wxss',
+  'miniprogram_npm/tdesign-miniprogram/common/style/theme/_index.wxss',
 )
 
 /** TDesign 深色分支漏掉的变量。深色下必须给值，否则会继承浅色表的同名值。 */
@@ -429,12 +429,12 @@ const darkHeader = `/* 生成物，不要手改 —— 重新生成：node scrip
 
 const outputs = [
   {
-    file: path.join(ROOT, 'miniprogram/theme/light.wxss'),
+    file: path.join(ROOT, 'theme/light.wxss'),
     content: lightHeader + lightBlocks.join('\n') + '\n' + lightBrandCss + '\n',
     desc: `浅色（默认）主题，${lightBlocks.length} 段`,
   },
   {
-    file: path.join(ROOT, 'miniprogram/theme/dark.wxss'),
+    file: path.join(ROOT, 'theme/dark.wxss'),
     content: darkHeader + darkBlocks.map((b) => retarget(b, '.page,page', '.theme-dark,.theme-dark page')).join('\n') + '\n' + darkFixupCss + '\n' + darkReadableCss + '\n',
     desc: `深色主题，${darkBlocks.length} 段 + ${DARK_ONLY_FIXUPS.length} 段补齐 + ${DARK_READABILITY.length} 项可读性修正`,
   },

@@ -23,7 +23,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-const MP_ROOT = path.join(ROOT, 'miniprogram')
+const MP_ROOT = ROOT
 const problems = []
 
 /** 只报"断言不成立"，不抛异常——一次跑完把所有问题列清楚。 */
@@ -65,10 +65,11 @@ try {
   // 已在第 1 项报过
 }
 const declaredRoot = projectConfig.miniprogramRoot
-check(typeof declaredRoot === 'string' && declaredRoot.length > 0, 'project.config.json 缺 miniprogramRoot')
+// v3 起小程序项目根就是包根（与微信默认模板一致），`miniprogramRoot` 为空即包根。
+const effectiveRoot = typeof declaredRoot === 'string' && declaredRoot.length > 0 ? declaredRoot : '.'
 check(
-  typeof declaredRoot === 'string' && existsSync(path.join(ROOT, declaredRoot)),
-  `project.config.json 的 miniprogramRoot (${JSON.stringify(declaredRoot)}) 指向的目录不存在`,
+  existsSync(path.join(ROOT, effectiveRoot)),
+  `project.config.json 的 miniprogramRoot (${JSON.stringify(effectiveRoot)}) 指向的目录不存在`,
 )
 
 // ── 3/4. app.json ───────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ for (const page of appJson.pages ?? []) {
 check((appJson.pages ?? []).length > 0, 'app.json 的 pages 为空')
 
 // ── 5. 每页 usingComponents 可解析 ──────────────────────────────────────
-/** 小程序组件路径：以 `/` 开头是相对 miniprogramRoot 的绝对路径，否则是相对本文件。 */
+/** 小程序组件路径：以 `/` 开头是相对项目根的绝对路径，否则是相对本文件。 */
 function resolveComponent(pageDir, ref) {
   const base = ref.startsWith('/')
     ? path.join(MP_ROOT, ref.slice(1))

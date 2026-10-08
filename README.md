@@ -8,11 +8,11 @@ DSH Remote Control 的**微信小程序客户端**：扫码配对桌面主机（
 
 ## 结构
 
-- `miniprogram/core/`——协议编解码（`codec.js`，协议层 golden vectors 的 **oracle**）、
+- `core/`——协议编解码（`codec.js`，协议层 golden vectors 的 **oracle**）、
   连接状态机（自动重连 / 退避 / 两帧解不开即掉配对）、主题（浅 / 深两套）
-- `miniprogram/pages/{sessions,chat}/`——会话列表与对话两个页面
-- `miniprogram/theme/`——由 `scripts/gen-mp-theme.mjs` 从 TDesign 源生成，**勿手改**
-- `miniprogram/miniprogram_npm/`——TDesign 裁剪产物（"构建 npm" 产出，入库）
+- `pages/{sessions,chat}/`——会话列表与对话两个页面
+- `theme/`——由 `scripts/gen-mp-theme.mjs` 从 TDesign 源生成，**勿手改**
+- `miniprogram_npm/`——TDesign 裁剪产物（"构建 npm" 产出，入库）
 
 ## 五道闸
 
