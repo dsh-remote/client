@@ -173,7 +173,12 @@ class DrcClient {
 
     // ── 2. 逐项校验（顺序按"用户最先需要知道的那条"排）──────────────
     if (!nextServer) {
-      this._setStatus('needs-pair', '请先扫码或填写中继服务地址')
+      // ⚠️ 这句原来写「请先扫码**或填写**中继服务地址」——而**界面上没有"填写"这条路**
+      // （v3 拍板：中继地址的配置点在 DSH 侧 = 主机插件的 serverUrl，小程序只管扫，
+      // 见 V3-PLAN §7 阶段 E 的「需求已反转」）。用户读到它只会去找一个不存在的东西。
+      //
+      // 判据：文案里提到的每个入口都必须真实存在（e2e/mp-client-contract 那一族）。
+      this._setStatus('needs-pair', '请先扫描主机状态栏那颗胶囊弹出的二维码')
       return
     }
     if (!codec.isValidPairingServer(nextServer)) {
