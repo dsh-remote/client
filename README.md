@@ -14,15 +14,24 @@ DSH Remote Control 的**微信小程序客户端**：扫码配对桌面主机（
 - `theme/`——由 `scripts/gen-mp-theme.mjs` 从 TDesign 源生成，**勿手改**
 - `miniprogram_npm/`——TDesign 裁剪产物（"构建 npm" 产出，入库）
 
-## 五道闸
+## 八道闸
+
+`pnpm run check` 串的就是下面这八道（顺序即执行顺序）：
 
 ```sh
-node scripts/verify-miniprogram.mjs      # 结构自检（JSON / 页面 / 分包引用）
-node --test scripts/check-markdown.mjs   # markdown 渲染
-node --test scripts/check-scroll.mjs     # 滚动策略
-node scripts/gen-mp-theme.mjs --check    # 主题表新鲜度
-node scripts/check-mp-contrast.mjs       # 对比度（组）
+node scripts/verify-miniprogram.mjs         # 结构自检（JSON / 页面 / 组件引用 / 自研 JS / 标签配对）
+node --test scripts/check-markdown.mjs      # markdown 渲染（35 项）
+node --test scripts/check-mp-tokens.mjs     # 设计 token（8 项，含裸值棘轮）
+node --test scripts/check-mp-components.mjs # 组件层（22 项，含 44px 点击区）
+node --test scripts/check-scroll.mjs        # 滚动策略（14 项）
+node scripts/gen-mp-theme.mjs --check       # 主题表新鲜度（生成物与 tokens.mjs 不许漂）
+node scripts/check-mp-contrast.mjs          # 对比度（356 组）
+node scripts/gen-mp-copy.mjs --check        # 共享文案表两端一致
 ```
+
+> ⚠️ 这一节原来写的是「五道闸」并只列了五条 —— 而 `package.json` 的 `check` 早就串了八道。
+> 2026-10-10 拆仓时按 `package.json` 重数了一遍。**过期的数字比没有数字更坏**：
+> 它让"闸门全绿"看起来是验过的，其实数的是另一批。
 
 ## 红线
 

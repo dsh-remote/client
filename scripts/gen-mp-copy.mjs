@@ -20,13 +20,45 @@
  *   node scripts/gen-mp-copy.mjs            # 重新生成
  *   node scripts/gen-mp-copy.mjs --check    # 只校验新鲜度（闸门用这个）
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-/** 事实源在宿主插件包里（单仓相对路径；拆仓后本脚本与那份 JSON 要一起搬）。 */
-const SOURCE = path.resolve(MP, '..', 'plugin', 'copy', 'zh-cn.json')
+
+/**
+ * 事实源：**共享文案表**（宿主侧中文与 mp 侧共用一份，V3-PLAN §7 阶段 F2）。
+ *
+ * ⚠️ 它有两个可能的位置，**按顺序找第一个存在的**（2026-10-10 拆仓时补）：
+ *
+ *   1. `packages/plugin/copy/zh-cn.json` —— 单仓 `dsh-remote-v3` 里的位置。
+ *      这里才是**权威**事实源，`e2e/shared-copy.test.mjs` 按它反向验。
+ *   2. `<本包>/copy/zh-cn.json` —— 独立仓 `dsh-remote/client` 里的位置。
+ *      拆仓时那份 JSON 被**一起搬了进来**（原注释就写着"拆仓后本脚本与那份 JSON
+ *      要一起搬"），否则 `copy:check` 在独立仓里必然 ENOENT —— 而它会表现为
+ *      "闸门红了"，看着像文案写错，其实是**路径不对**。
+ *
+ * ⚠️ 这构成了一份**快照副本**，理论上有漂移风险。为什么还是这么做：
+ *   · 独立仓要能**自足**地跑自己的闸，否则 `pnpm run check` 里永远缺一道；
+ *   · 漂移由**伞仓**兜住 —— `e2e/shared-copy.test.mjs` 在两个包都在场时逐条比，
+ *     而它是 `pnpm gates` 的一部分，发版前必经。
+ *   单仓里第 1 个位置永远存在，所以**单仓行为一个字节都没变**。
+ */
+const SOURCE = [
+  path.resolve(MP, '..', 'plugin', 'copy', 'zh-cn.json'),
+  path.join(MP, 'copy', 'zh-cn.json'),
+].find((p) => existsSync(p))
+
+if (!SOURCE) {
+  console.error(
+    '[gen-mp-copy] 找不到共享文案表。找过这两处：\n' +
+      `  1. ${path.resolve(MP, '..', 'plugin', 'copy', 'zh-cn.json')}（单仓）\n` +
+      `  2. ${path.join(MP, 'copy', 'zh-cn.json')}（独立仓，拆仓时随包搬入）\n` +
+      '两处都没有 ⇒ 不是"文案不一致"，是**文件不在**。别去改 core/copy.js。',
+  )
+  process.exit(1)
+}
+
 const TARGET = path.join(MP, 'core', 'copy.js')
 
 const table = JSON.parse(readFileSync(SOURCE, 'utf8'))
