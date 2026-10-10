@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.8
+
+> 四个包（`protocol` / `relay` / `plugin` / `client`）一起 bump 到 `3.0.8`。
+
+**小程序端无代码改动。** 这一版的修复全在宿主插件（`packages/plugin`）：
+
+- 手机离线时审批/提问**照常挂账**（原来当场 `decline` ⇒ 卡根本生不出来，手机回来也无物可推）
+- 重连时主机**主动把挂起的卡推一遍**（`onClientRejoined` 原来只发 `ev.host_info`）
+- 从小程序建的会话**登记进工作区**（只给 `cwd` 不够，DSH 侧栏看的是工作区的 `sessionIds`）
+
+⇒ **已上传的 3.0.7 体验版功能上就是最新的**，不必重传；若要版本标签一致，
+走 `pnpm mp:upload --version 3.0.8` 并在微信公众平台重新设为体验版。
+
 ## 3.0.7
 
 > 四个包（`protocol` / `relay` / `plugin` / `client`）一起 bump 到 `3.0.7`。
