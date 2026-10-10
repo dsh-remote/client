@@ -51,7 +51,18 @@ const RAW_PROPS = [
  * 都没有任何页面 wxml 用它 —— 只有它自己和这份判据引用它。留着就是一份"看起来
  * 有、实际没接线"的组件，还会让这份判据的项数虚高。真需要一个底部弹层时再写，
  * 那时**消费者是明确的**，不会再出现"建了没人用"。 */
-const NAMES = ['drc-empty', 'drc-skeleton', 'drc-btn']
+/** 组件清单（目录名 = 文件名）。
+ *
+ * ⚠️ 删过两个「建了没人用」的组件，理由都是同一条：**只有它自己和这份判据引用它**。
+ * - `drc-sheet`（底部弹层壳）2026-10-08 删；
+ * - `drc-btn`（按钮壳）2026-10-10 删 —— 所有页面都在用 TDesign 的 `t-button`，
+ *   而它是 C2 那轮建的、一直没接上线（grep 全仓：页面 wxml 0 处、
+ *   `usingComponents` 0 处、e2e 判据 0 处；宿主 pill 那个 `.drc-btn` 是**另一个**，
+ *   在 `packages/plugin/src/client/pill.ts` 里，与这里无关）。
+ *
+ * 留着就是一份「看起来有、实际没接线」的组件，还会让这份判据的项数虚高。
+ * 真需要时再写，那时消费者是明确的。 */
+const NAMES = ['drc-empty', 'drc-skeleton']
 
 function read(name, ext) {
   return readFileSync(path.join(COMPONENTS, name, `${name}.${ext}`), 'utf8')
@@ -183,96 +194,6 @@ test('① 每个组件四件套齐全，且 json 声明自己是组件', () => {
   assert.deepEqual(problems, [], '组件目录不完整')
 })
 
-
-// ── ⑤ drc-btn：danger 与 primary 是**形状**上的差异 ─────────────────────
-/** 两个变体的底色 / 字色 / 描边。抽成纯函数，反向判据复用。 */
-function variantVerdict(wxss) {
-  const danger = ruleOf(wxss, '.drc-btn--danger')
-  const primary = ruleOf(wxss, '.drc-btn--primary')
-  const keys = ['background', 'color', 'box-shadow']
-  const picked = {}
-  for (const k of keys) {
-    picked[k] = [declOf(danger, k), declOf(primary, k)]
-  }
-  const problems = []
-  if (danger === null) problems.push('wxss 里没有 .drc-btn--danger')
-  if (primary === null) problems.push('wxss 里没有 .drc-btn--primary')
-  for (const k of keys) {
-    if (!picked[k][0] || !picked[k][1]) problems.push(`${k} 在两个变体里没都写出来（少一个就无从比较）`)
-  }
-  const differ = keys.filter((k) => picked[k][0] !== picked[k][1])
-  if (differ.length < 2) {
-    problems.push(`两个变体只有 ${differ.length} 处不同（${differ.join('、') || '无'}），至少要两处`)
-  }
-  return { picked, differ, problems }
-}
-
-test('⑤ drc-btn：danger 与 primary 在底色/字色/描边里至少两处不同', () => {
-  // ⚠️ 为什么必须是"形状差异"而不是"换个文案"：色觉障碍用户区分不了红与蓝，
-  // 而解配、拒绝、删除草稿这类动作必须能被**一眼**认出来。
-  const { picked, differ, problems } = variantVerdict(read('drc-btn', 'wxss'))
-  assert.deepEqual(problems, [], `两个变体的形状差异不够：${JSON.stringify(picked)}`)
-  assert.ok(differ.includes('background'), `底色必须不同，实际 ${JSON.stringify(picked.background)}`)
-})
-
-test('反向判据：把 danger 的底色与描边都改成与 primary 相同 ⇒ ⑤ 立刻红', () => {
-  // 一次改两处，让"只剩字色不同"—— 那时就应当判红（要求的是至少两处）。
-  const wxss = read('drc-btn', 'wxss')
-    .replace('.drc-btn--danger {\n  background: transparent;', '.drc-btn--danger {\n  background: var(--drc-surface-brand, #0052d9);')
-    .replace(
-      '.drc-btn--danger {\n  background: var(--drc-surface-brand, #0052d9);\n  color: var(--drc-fg-danger, #c93c34);\n  box-shadow: inset 0 0 0 2rpx var(--drc-fg-danger, #c93c34);',
-      '.drc-btn--danger {\n  background: var(--drc-surface-brand, #0052d9);\n  color: var(--drc-fg-danger, #c93c34);\n  box-shadow: inset 0 0 0 0 transparent;',
-    )
-  assert.notEqual(wxss, read('drc-btn', 'wxss'), '夹具要真的改掉了底色与描边')
-  const { differ, problems } = variantVerdict(wxss)
-  assert.ok(!differ.includes('background'), '改完之后底色应当被判为相同 —— 否则 ⑤ 是恒绿的')
-  assert.ok(!differ.includes('box-shadow'), '改完之后描边也应当被判为相同')
-  assert.ok(problems.length > 0, '只剩字色一处不同时 ⑤ 必须红（它要求至少两处）')
-})
-
-// ── ⑥ drc-btn：loading 与 disabled 都拦 tap ─────────────────────────────
-test('⑥ drc-btn：loading 与 disabled 都要拦住 tap（连点会发两条命令）', () => {
-  // ⚠️ 为什么两个都要拦：loading 时点第二下发出的是**另一条命令**（不是重发同一条），
-  // 幂等台账按 cmdId 去重挡不住它。连点两次"新建会话"就会建两条。
-  const def = loadDef('drc-btn')
-  for (const state of [{ loading: true }, { disabled: true }]) {
-    const inst = makeInstance(def, state)
-    inst.onTap({})
-    assert.deepEqual(inst.events, [], `${JSON.stringify(state)} 时 tap 必须被拦住`)
-  }
-  const ok = makeInstance(def, {})
-  ok.onTap({ type: 'tap' })
-  assert.equal(ok.events.length, 1, '正常态下要能点得动（这一条是"别把拦截写成永远拦截"）')
-})
-
-test('反向判据：去掉那道拦截 ⇒ ⑥ 立刻红', () => {
-  const src = read('drc-btn', 'js').replace('if (this.data.loading || this.data.disabled) return', '// 拦截被拆掉了')
-  assert.notEqual(src, read('drc-btn', 'js'), '夹具要真的拆掉了那一行')
-  const inst = makeInstance(loadFromSource(src, 'btn-no-guard'), { loading: true })
-  inst.onTap({})
-  assert.equal(inst.events.length, 1, '拆掉之后 loading 时也会发 tap —— 否则 ⑥ 是恒绿的')
-})
-
-test('⑥b drc-btn：非法 variant 退回 primary（不给一个"半坏"的按钮）', () => {
-  const def = loadDef('drc-btn')
-  assert.equal(makeInstance(def, { variant: 'nope' }).data.cls, 'primary')
-  assert.equal(makeInstance(def, { variant: 'danger' }).data.cls, 'danger')
-})
-
-test('反向判据：variant 不过滤 ⇒ ⑥b 立刻红', () => {
-  // ⚠️ 两处过滤都要拆：observer（运行中改属性）与 attached（初始值）各写了一遍，
-  // 而 makeInstance 走的是 attached —— 只拆 observer 的话这条反证什么也证不到。
-  const src = read('drc-btn', 'js').replace(
-    /VARIANTS\[([^\]]+)\] \? \1 : 'primary'/g,
-    '$1',
-  )
-  assert.notEqual(src, read('drc-btn', 'js'), '夹具要真的拆掉了过滤')
-  assert.equal(
-    makeInstance(loadFromSource(src, 'btn-no-filter'), { variant: 'nope' }).data.cls,
-    'nope',
-    '不过滤就会得到一个没有样式的变体 —— 否则 ⑥b 是恒绿的',
-  )
-})
 
 // ── ⑦ drc-skeleton：行数要夹住 ──────────────────────────────────────────
 test('⑦ drc-skeleton：rows 夹在 1..6，非数字/0/负数一律回 3', () => {

@@ -284,9 +284,3 @@ view, scroll-view, input, textarea, button {
   line-height: 44rpx;
   padding: 16rpx;
 }
-
-.footer-link.dim {
-  color: var(--td-text-color-placeholder, #a0a6b0);
-  font-size: 24rpx;
-  margin-top: 8rpx;
-}

@@ -45,7 +45,7 @@ const MP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
  * ⚠️ 改这个数的唯一正当理由：迁移了一处，实测变少了 —— 那就把它**降**下来。
  * 往上升等于"允许再手写几个数"，那正是这一层要消灭的东西。
  */
-const RAW_BASELINE = 257
+const RAW_BASELINE = 255
 
 /** 受 token 约束的三类声明。 */
 const GEOMETRY_PROPS = /(^|[\s;])(padding|margin|gap|row-gap|column-gap)(-(top|right|bottom|left))?\s*:/m
