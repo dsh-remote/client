@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/client",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "private": true,
   "description": "DSH Remote Control 的微信小程序客户端：扫码配对主机，发指令、看流式输出、回答审批。",
   "license": "MIT",

@@ -1,14 +1,11 @@
 # Changelog
 
-## 3.0.7（开发中）
+## 3.0.7
 
-> ⚠️ **版本号还没动**（四个包的 `package.json` 都还是 `3.0.6`）。用户 2026-10-10 的裁决是
-> 「只锁设计」：这一节记录**已落地的设计**，但**不发版、不上传**。
-> 真要用这一版时按 `docs/RELEASE.md` 走：先 `node scripts/next-version.mjs` 拿号，
-> 四个包一起 bump，再跑发版硬门槛。
->
-> 这条与 `packages/plugin/CHANGELOG.md` 的「（开发中）」是同一种写法 ——
-> 那一节也是"写下了但还没发"。
+> 四个包（`protocol` / `relay` / `plugin` / `client`）一起 bump 到 `3.0.7`。
+> 发版记录见 [`docs/RELEASE.md`](../../docs/RELEASE.md) 的「已发布记录」。
+> ⚠️ **小程序还没上传**（`pnpm mp:upload` 要用微信开发者工具 CLI，本机没跑）——
+> 这一节写的是**代码里已经落地的设计**，上传与否见 RELEASE.md 那一节的备注。
 
 **两套主题重做：深色「深空墨蓝」+ 浅色「冷调浅色」（定版）**
 
