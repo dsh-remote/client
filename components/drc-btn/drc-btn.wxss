@@ -1,0 +1,123 @@
+/* drc-btn —— 主按钮 / 危险按钮（阶段 C2）。
+ *
+ * ## ⚠️ 为什么 danger 是**描边红**而不是**填充红**
+ *
+ * 直觉是"危险 = 一整块红"，但那在本项目里做不到且不该做：
+ *   ① **做不到**：填充红要"白字压红底"。白字是 `--td-text-color-anti`，
+ *      红底只能用 `--td-error-color-6`，而那个色在**深浅两套里是分别被修过的**
+ *      （light `#c93c34` / dark `#e8757d`）—— 修的目标是"它当**字色**压在卡片上
+ *      要过 4.5"（实测 4.53 / 4.74）。**让同一个色去当底、再压白字，是另一个问题**：
+ *      深色下 `#e8757d` 配白字只有 2.89，离 4.5 差得远。要填就得再加一条
+ *      "只给按钮用的红"，那是**第二套红**，从此有两处要一起改。
+ *   ② **不该做**：填充块是页面上最抢眼的形状。解配、拒绝、删除草稿这些动作
+ *      **不该比"确认""允许"更抢眼** —— 抢眼的应该是那个不危险的默认动作。
+ * 所以 danger = 透明底 + `--drc-fg-danger` 字 + 2rpx 同色描边。
+ * **底色/字色/描边三处与 primary 全不同**，不是换个文案 —— 色觉障碍用户也要能分出来。
+ *
+ * 判据（`check-mp-components.mjs`）读的就是下面这几条规则里 `background` / `color` /
+ * `box-shadow` 的**实际取值**，不是读类名。
+ */
+
+.drc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: var(--drc-radius-md, 16rpx);
+  font-size: var(--drc-font-md, 28rpx);
+  line-height: 1;
+  /* 无描边变体也要占位：加不加边框会改变按钮高度，相邻按钮会错开 4rpx */
+  box-shadow: inset 0 0 0 0 transparent;
+  transition: opacity 120ms ease-out;
+}
+
+.drc-btn.is-block {
+  display: flex;
+  width: 100%;
+}
+
+/* ── 尺寸 ──────────────────────────────────────────────────────────────
+   高度取 8rpx 的倍数（4px 网格）。⚠️ 用 padding 而不是固定 height：
+   系统字号放大时固定高度会把文字裁掉。 */
+.drc-btn--large {
+  padding: var(--drc-space-3, 24rpx) var(--drc-space-4, 32rpx);
+}
+.drc-btn--medium {
+  padding: var(--drc-space-2, 16rpx) var(--drc-space-3, 24rpx);
+}
+.drc-btn--small {
+  padding: var(--drc-space-1, 8rpx) var(--drc-space-2, 16rpx);
+  font-size: var(--drc-font-sm, 24rpx);
+}
+
+/* ── 变体：primary（填充品牌色）────────────────────────────────────── */
+.drc-btn--primary {
+  background: var(--drc-surface-brand, #0052d9);
+  color: var(--drc-fg-anti, #ffffff);
+  box-shadow: inset 0 0 0 0 transparent;
+}
+
+/* ── 变体：danger（描边红，见上面那段为什么不是填充红）────────────── */
+.drc-btn--danger {
+  background: transparent;
+  color: var(--drc-fg-danger, #c93c34);
+  box-shadow: inset 0 0 0 2rpx var(--drc-fg-danger, #c93c34);
+}
+
+/* ── 变体：light（浅底，用于"次要但不危险"）───────────────────────── */
+.drc-btn--light {
+  background: var(--drc-surface-sunken, #f3f3f3);
+  color: var(--drc-fg-primary, rgba(0, 0, 0, 0.9));
+  box-shadow: inset 0 0 0 0 transparent;
+}
+
+/* ── 变体：plain（只有字，用于行内/文本链）────────────────────────── */
+.drc-btn--plain {
+  background: transparent;
+  color: var(--drc-fg-brand, #0052d9);
+  box-shadow: inset 0 0 0 0 transparent;
+}
+
+/* ── 按压反馈 ──────────────────────────────────────────────────────────
+   ⚠️ 用 opacity 而不是换底色：换底色要在 4 个变体里各写一份"按下时的色"，
+   那是 4 个没人算过对比度的新组合（对比度闸只验声明过的搭配）。 */
+.drc-btn-pressed {
+  opacity: 0.75;
+}
+
+.drc-btn.is-disabled {
+  opacity: 0.45;
+}
+
+.drc-btn-text {
+  line-height: 1;
+}
+
+/* ── loading ───────────────────────────────────────────────────────────
+   转圈用 border + rotate：小程序里没有 SVG，用两张图切又多两个文件。
+   ⚠️ 用 currentColor：转圈自动跟着变体的字色走，不用给 4 个变体各写一份。 */
+.drc-btn-spin {
+  width: 28rpx;
+  height: 28rpx;
+  border-radius: var(--drc-radius-pill, 999rpx);
+  border: 4rpx solid currentColor;
+  border-top-color: transparent;
+  animation: drc-btn-spin 700ms linear infinite;
+}
+
+@keyframes drc-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ⚠️ 系统开了"减弱动效"时不许转 —— 那是无障碍设置，不是偏好。
+   小程序支持 `prefers-reduced-motion` 媒体查询。 */
+@media (prefers-reduced-motion: reduce) {
+  .drc-btn-spin {
+    animation-duration: 2000ms;
+  }
+  .drc-btn {
+    transition: none;
+  }
+}

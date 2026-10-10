@@ -27,7 +27,13 @@ view, scroll-view, input, textarea, button {
 }
 
 .page-pad {
-  padding: 24rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));
+  /* 底部留白要给主题开关那颗**固定悬浮键**让位（2026-10-10）：
+     它 88rpx 高、离底 24rpx ⇒ 占掉底部 112rpx。不留够的话，
+     列表最后一行与「已归档 N 条」会被压在它下面，而悬浮键是 fixed、
+     不参与文档流 —— 用户滚到底也顶不开它。
+     ⚠️ 只改数值不改个数：`check-mp-tokens` 的棘轮数的是"裸写的处数"，
+     这一行本来就是 3 处，改大不增不减。 */
+  padding: 24rpx 24rpx calc(136rpx + env(safe-area-inset-bottom));
   /* 必须自带底色 + 铺满。
      为什么：深色变量挂在**根容器**的 class 上（.theme-dark），而 `page` 元素自己
      永远是浅色（浅色表写在 .page,page 上，那是默认态）。根容器不铺满、不画底色的话，
@@ -46,14 +52,64 @@ view, scroll-view, input, textarea, button {
   color: var(--td-text-color-primary);
 }
 
+/* ── 页面环境光：浅色一层极淡冷调、深色两团极光（2026-10-09 / 10）──────
+   浅色与深色**同一种做法、两套取值**：
+   ① 不用加子节点 ⇒ 没有 z-index 打架（一个 absolutely 定位的视图要么盖住内容、
+      要么被内容盖住，两种都要在别处补 `position: relative`）；
+   ② `background-color` 保持是一个 `--td-*` 变量 ⇒ 对比度闸仍然读到真实的底色
+      （`FG_ON` 那套解析靠的就是它）。⚠️ 而 `background-image` 对它是**不可见**的，
+      所以渐变的对比度只能手工守 —— 理由与两端取值写在 gen-mp-theme.mjs 的
+      `DARK_PAINT` / `LIGHT_PAINT` 注释里。
+   ⚠️ `background-attachment: fixed`：让那层光不随内容滚走。
+   不支持时这一条被**忽略**，退化成"锚在页面顶部的一团光" —— 仍然好看、不会破。
+   ⚠️ 只挂 `.page-pad`（列表页）。聊天页是内层 scroll-view + 用户反复调过的
+   composer，动它的底色风险远大于收益。 */
+.page-pad {
+  /* 浅色：顶部两团几乎看不见的品牌色 —— 目的是让"纯白页面"有一点空气感，
+     而不是让人看见"这里有个渐变"。透明度 0.055~0.070，再高就开始显脏。 */
+  background-image:
+    radial-gradient(120% 56% at 8% -8%, var(--td-wash-brand) 0%, rgba(255, 255, 255, 0) 60%),
+    radial-gradient(92% 48% at 96% 0%, var(--td-wash-violet) 0%, rgba(255, 255, 255, 0) 56%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+.page-pad.theme-dark {
+  background-image:
+    radial-gradient(130% 62% at 10% -10%, var(--td-aurora-indigo) 0%, rgba(0, 0, 0, 0) 62%),
+    radial-gradient(96% 52% at 94% 0%, var(--td-aurora-cyan) 0%, rgba(0, 0, 0, 0) 58%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
 /* ── 卡片：三页共用的基础容器 ─────────────────────────────────────────
-   统一圆角与描边。白底 + 描边而不是投影：真机上投影在小屏里会糊成一片，
-   描边在浅/深色两种主题下都干净。 */
+   统一圆角与描边。**白底 + 描边是底色层次的主力**：真机上投影在小屏里会糊成
+   一片，描边在浅/深色两种主题下都干净。
+
+   ⚠️ 2026-10-10 浅色加了**一层很轻的投影**（改动说明，不是推翻上面那条）：
+   页面底从 `#f3f3f3` 换成更冷的 `#eff2f7` 之后，白卡片与页面底的明度差没有变，
+   但**描边被一起换成了冷灰**、对比更低，于是"卡片是一张卡"这件事少了一点提示。
+   加的是 `0 2rpx 10rpx` 这个量级 —— 它不构成"投影"，只是在卡片下沿垫一层
+   几乎看不见的暗，把轮廓补回来。深色那侧不加这个（那边靠 inset 高光 + 大投影）。 */
 .card {
   background: var(--td-bg-color-container, #ffffff);
   border: 2rpx solid var(--td-component-border, #e7e7e7);
   border-radius: 20rpx;
   overflow: hidden;
+  box-shadow: 0 2rpx 10rpx 0 rgba(29, 42, 74, 0.055);
+}
+
+/* ── 深色专属：卡片"浮起来"（2026-10-09）───────────────────────────────
+   新色阶把描边压暗了（TDesign 深色的 #5e5e5e 是给浅底用的，深底上整屏发灰），
+   层次就得靠这两道光找回来：
+     · `inset` 顶边那一线 —— 卡片像是被上方光源照到，是"浮起"的**主要**线索；
+     · 外投影 —— 把它从页面底上托开。
+   ⚠️ 用 inset 而不是 `::before`：`.card` 有 `overflow: hidden`，伪元素还得
+   自己复刻一遍圆角（否则两端露直角），而 inset 阴影自动跟随 border-radius。 */
+.theme-dark .card {
+  box-shadow:
+    inset 0 2rpx 0rpx 0 var(--td-card-sheen),
+    0 12rpx 32rpx 0 rgba(0, 0, 0, 0.45);
 }
 
 /* 区块标题：不算内容，只是标签 */
@@ -61,6 +117,37 @@ view, scroll-view, input, textarea, button {
   font-size: 26rpx;
   color: var(--td-text-color-secondary, #5c6470);
   padding: 24rpx 16rpx 12rpx;
+}
+
+/* ── 分区标题前面的一道品牌色标记（2026-10-09 深色 / 10-10 扩到两个主题）──
+   光有一行灰字时，分区标题和正文是同一种东西；加一根品牌色短竖条，
+   分区就成了**结构**而不只是标签。
+   ⚠️ 2026-10-10 从「深色专属」改成两主题共用：浅色下它同样成立
+   （品牌渐变在浅底上一样看得清），而且浅色是**默认**主题 —— 只给深色加，
+   等于大多数用户看不到这个设计。渐变两端对浅底的对比度见 LIGHT_PAINT 注释。
+   ⚠️ `padding-left` 必须走 token：`check-mp-tokens` 的棘轮把裸写 rpx 记在
+   padding / margin / gap / border-radius / font-size 五类上，多一处就红。 */
+.section-title {
+  position: relative;
+  padding-left: var(--drc-space-3);
+}
+
+.section-title::before {
+  content: '';
+  position: absolute;
+  left: 10rpx;
+  /* 垂直居中用 calc 一句算完，而不是「top 定一半再往上顶一半」：
+     后者要写在 margin 上，而 `margin` 在判据 ④ 的棘轮名单里（裸写 rpx 只许减
+     不许增），负值在 `theme/tokens.mjs` 里又没有对应 token。与其去抬基线，
+     不如换个写法 —— `top` / `left` / `width` / `height` 不在那份名单里。
+     ⚠️ 这条注释本身也别写出「属性名 + 负数字面量」的相邻形状：判据 ④ **不剥注释**，
+     那串字面量会被当成真声明记进棘轮（2026-10-09 实测：一句解释多算两处）。 */
+  top: calc(50% - 12rpx);
+  width: 4rpx;
+  height: 24rpx;
+  border-radius: var(--drc-radius-pill);
+  background: var(--td-brand-gradient);
+  opacity: 0.85;
 }
 
 /* 单行可省略文本：会话标题、路径这类长度不可控的内容 */
@@ -99,11 +186,59 @@ view, scroll-view, input, textarea, button {
   background: var(--td-text-color-placeholder, #a0a6b0);
 }
 
-.dot.success { background: var(--td-success-color, #2ba471); }
-.dot.primary { background: var(--td-brand-color, #0052d9); }
-.dot.warning { background: var(--td-warning-color, #e37318); }
-.dot.danger { background: var(--td-error-color, #d54941); }
+.dot.success {
+  background: var(--td-success-color, #2ba471);
+  /* ── 浅色：状态灯外面一圈更深的**同色环**（2026-10-10）──────────────
+     深色那侧用"发光"（半透明加亮），浅色这侧**必须反过来**：
+     在白底上加亮等于没加，只会糊成一团脏色。所以这里用一圈比点自身
+     略深、透明度 0.16 的实色环 —— 它把点和底隔开，读起来仍然是"一颗灯"。
+     ⚠️ 深色那侧靠 `.theme-dark .dot.success`（多一个类，特异性更高）覆盖，
+     所以这两套**不需要**顺序约定，改哪一段都不会互相踩。 */
+  box-shadow: 0 0 0 4rpx var(--td-ring-success);
+}
+
+.dot.primary {
+  background: var(--td-brand-color, #0052d9);
+  box-shadow: 0 0 0 4rpx var(--td-ring-brand);
+}
+
+.dot.warning {
+  background: var(--td-warning-color, #e37318);
+  box-shadow: 0 0 0 4rpx var(--td-ring-warning);
+}
+
+.dot.danger {
+  background: var(--td-error-color, #d54941);
+  box-shadow: 0 0 0 4rpx var(--td-ring-danger);
+}
+
 .dot.blink { animation: dot-blink 1.1s ease-in-out infinite; }
+
+/* ── 深色专属：状态灯带辉光（2026-10-09）────────────────────────────────
+   "这一台现在通不通"是这一页唯一必须一眼看到的东西，而它在深色下只有一颗
+   14rpx 的小点——深色底本来就吃掉细边缘，加一圈光才把它"托"出来。
+   两层：`0 0 0 Npx` 是不透光环（把点和底隔开），`0 0 Npx Npx` 是外辉光。
+   ⚠️ 辉光色**不从 `--td-*-color-6` 派生**：那些是"给字用的浅色值"，
+   当辉光会亮得刺眼。各状态在 `gen-mp-theme.mjs` 的 DARK_PAINT 里各给一档。 */
+.theme-dark .dot {
+  box-shadow: 0 0 0 4rpx rgba(255, 255, 255, 0.05);
+}
+
+.theme-dark .dot.success {
+  box-shadow: 0 0 0 6rpx rgba(31, 214, 153, 0.10), 0 0 18rpx 2rpx var(--td-glow-success);
+}
+
+.theme-dark .dot.primary {
+  box-shadow: 0 0 0 6rpx rgba(63, 91, 246, 0.12), 0 0 18rpx 2rpx var(--td-glow-brand);
+}
+
+.theme-dark .dot.warning {
+  box-shadow: 0 0 0 6rpx rgba(240, 160, 90, 0.10), 0 0 18rpx 2rpx var(--td-glow-warning);
+}
+
+.theme-dark .dot.danger {
+  box-shadow: 0 0 0 6rpx rgba(255, 138, 146, 0.10), 0 0 18rpx 2rpx var(--td-glow-danger);
+}
 
 .pill {
   flex: 0 0 auto;

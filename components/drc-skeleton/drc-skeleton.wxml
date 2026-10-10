@@ -1,0 +1,20 @@
+<!--
+  drc-skeleton —— 加载态骨架（阶段 C2）。用法：
+
+    <drc-skeleton wx:if="{{loading}}" rows="3" />
+    <view wx:else>……真列表……</view>
+
+  ⚠️ 与真内容**互斥**（wx:if / wx:else）：两者同时存在会先看到骨架再看到内容跳一下，
+     那还不如不要骨架。
+-->
+<view class="drc-sk" aria-hidden="true">
+  <view wx:for="{{list}}" wx:key="*this" class="drc-sk-row">
+    <view wx:if="{{avatar}}" class="drc-sk-avatar"></view>
+    <view class="drc-sk-lines">
+      <view class="drc-sk-line drc-sk-title"></view>
+      <!-- 最后一条的副标题短一些：真列表里最后一条也常常是短路径，
+           骨架与内容形状一致才不会跳版。 -->
+      <view class="drc-sk-line drc-sk-sub {{index === list.length - 1 ? 'short' : ''}}"></view>
+    </view>
+  </view>
+</view>

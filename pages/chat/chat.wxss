@@ -63,8 +63,17 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  padding: 16rpx 24rpx;
-  background: var(--td-bg-color-secondarycontainer);
+  padding: var(--drc-space-2) var(--drc-space-3);
+  /* ⚠️ 白（container），不是 secondarycontainer。
+   *
+   * 用户报「待办条的背景也没了」：原来那条是 secondarycontainer，而浅色主题里
+   * `--td-bg-color-page` 与 `--td-bg-color-secondarycontainer` **指向同一个值**
+   * （`--td-gray-color-1`）⇒ 待办条直接坐在页面灰底上，那条底色等于没画，
+   * 只剩一条 2rpx 的下边线在撑着。
+   * ⇒ 这页的层次定成两档：**页面 = gray（--td-bg-color-page）**，
+   *   **直接贴在页面上的东西（待办条、输入栏、回复卡、过程卡）= 白（--td-bg-color-container）**。
+   *   这条已经写成判据（"通则：贴在页面上的控件不许拿 secondarycontainer 当底色"）。 */
+  background: var(--td-bg-color-container);
   border-bottom: 2rpx solid var(--td-component-border);
 }
 
@@ -73,7 +82,6 @@
 
 /* 一格一条。尺寸定在 26×12：再小（第一版 18×8）在真机上根本读不出"格子"，
    只看见一条虚线；再大就开始跟右边的计数抢主角。 */
-
 
 /* 进行中：只填下半——"进行到一半"是个一眼符号，比一个实点更像在动。 */
 
@@ -154,10 +162,14 @@
   flex: 0 0 auto;
   max-height: 300rpx;
   overflow-y: auto;
-  margin: 0 24rpx 16rpx;
-  padding: 4rpx 20rpx;
+  /* ⚠️ **通栏白，不左右内缩**（用户报「展开的列表两侧有大片灰色背景色区域」）：
+     面板原来 margin 24rpx，于是左右各露出一条页面灰 —— 灰色在这里是"页面"，
+     夹在两条白条（待办条 / 面板）之间读起来像出了两块空白。
+     ⇒ 面板横向铺满，文字的缩进交给 padding，于是**文字仍与上面「待办 3/7」对齐**，
+     但整条是干净的一块白。 */
+  margin: 0 0 var(--drc-space-1);
+  padding: 0 var(--drc-space-3);
   background: var(--td-bg-color-container);
-  border-radius: 16rpx;
 }
 
 /* 条目之间的发丝线：八条以上时线比间距更清楚谁是谁。 */
@@ -168,7 +180,11 @@
 .todo-item {
   display: flex;
   align-items: flex-start;
-  padding: 14rpx 0;
+  /* ⚠️ 行内上下留白收到 8rpx（2026-10-08 用户报「待办列表缝隙太大」）：
+     原来 14rpx 加一条 2rpx 分隔线，八条下来面板高度翻倍，
+     而清单只是"这一轮在干什么"的索引，不该占掉正文的位置。 */
+  padding: var(--drc-space-1) 0;
+  line-height: 36rpx;
 }
 
 /* 状态点：pending 灰圈、in_progress 品牌色半满、completed 品牌色实点。
@@ -177,7 +193,8 @@
   flex: 0 0 auto;
   width: 18rpx;
   height: 18rpx;
-  margin: 10rpx 16rpx 0 0;
+  /* 与收紧后的行高对齐：状态点跟着文字走，不悬在行上方 */
+  margin: 9rpx var(--drc-space-1) 0 0;
   border: 3rpx solid var(--td-text-color-placeholder);
   border-radius: 50%;
   box-sizing: border-box;
@@ -254,8 +271,10 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  padding: 12rpx 24rpx;
-  background: var(--td-bg-color-secondarycontainer);
+  padding: var(--drc-space-2) var(--drc-space-3);
+  /* 白底，与待办条/输入栏同一档（见 .todo-bar 那段注释：secondarycontainer 与 page 同值，
+     直接贴在页面上的东西用它当底色等于没画）。 */
+  background: var(--td-bg-color-container);
   border-bottom: 2rpx solid var(--td-component-border);
 }
 
@@ -313,22 +332,7 @@
   color: var(--td-text-color-primary);
 }
 
-/* 转圈：CSS 画，不引图标字体（图标字体走远程 CDN，拉不到就是空白方块） */
-.hist-spin {
-  width: 22rpx;
-  height: 22rpx;
-  margin-right: 12rpx;
-  border: 3rpx solid var(--td-component-border);
-  border-top-color: var(--td-brand-color);
-  border-radius: 50%;
-  animation: hist-spin 0.8s linear infinite;
-}
 
-@keyframes hist-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 /* ── 空状态 ───────────────────────────────────────────────────────── */
 .empty {
@@ -365,14 +369,9 @@
 .turn {
   display: flex;
   align-items: center;
-  padding: 36rpx 0 20rpx;
-}
-
-.turn-label {
-  flex: 0 0 auto;
-  font-size: 24rpx;
-  font-weight: 600;
-  color: var(--td-text-color-secondary);
+  /* ⚠️ 上边距从 36rpx 收到 16rpx（用户把「第 N 轮」去掉之后，那上面只剩一条线，
+     36rpx 的留白会让一条分隔线看起来像一段空白）。 */
+  padding: var(--drc-space-3) 0 var(--drc-space-2);
 }
 
 .turn-time {
@@ -383,9 +382,18 @@
 }
 
 .turn-line {
+  /* ⚠️ 改成**虚线**、高度归零（用户 2026-08-08：「修改为虚线或者去掉，不要影响显示」）。
+   *
+   * 做法：用 `border-top: dashed` + `height: 0` 画，**不再用 2rpx 的实心底色条**。
+   * 这样两件事同时成立：
+   *   ① 视觉上它是一条虚线（实心细条在深色下会亮成一条线，太重）；
+   *   ② **占位高度为 0** —— 与"去掉那条线"的排版完全一致，
+   *      也就是说分隔线**不再影响**这一段的留白（用户点名的那条纪律）。
+   */
   flex: 1 1 auto;
-  height: 2rpx;
-  background: var(--td-component-border);
+  height: 0;
+  border-top: 2rpx dashed var(--td-component-border);
+  background: none;
 }
 
 /* ── 你的指令：靠右的实心气泡 ───────────────────────────────────────
@@ -404,12 +412,33 @@
 }
 
 .user {
-  max-width: 82%;
-  padding: 20rpx 26rpx;
-  /* 四个角里右下角收小 = 尾巴朝向说话的人（他在右边）。微信的圆角语言：
-     收小的那个角永远对着气泡的主人，一眼就知道谁在说。 */
-  border-radius: 26rpx 26rpx 8rpx 26rpx;
+  /* 2026-10-08 推翻重排：照取证 `user-bubble` 的形状收。
+     ① `max-width:80%`（取证原值；旧版 82%）；
+     ② 右下角收小 = 尾巴朝向说话的人（他在右边）——微信的圆角语言：
+        收小的那个角永远对着气泡的主人，一眼就知道谁在说；
+     ③ 圆角/内边距全部走 token（`--drc-radius-lg` = 24rpx、`--drc-space-3` = 24rpx）。
+        取证原文是 `padding:24rpx 28rpx`，28rpx = 14px **不在 4px 网格上**——
+        网格优先，所以横向收成 24rpx（12px），视觉差 2px，判据 `check-mp-tokens` 才不会红。 */
+  max-width: 80%;
+  padding: var(--drc-space-3);
+  border-radius: var(--drc-radius-lg) var(--drc-radius-lg) var(--drc-radius-sm) var(--drc-radius-lg);
   background: var(--td-brand-color, #0052d9);
+}
+
+/* 用户气泡上品牌渐变 + 一层外投影 —— **两个主题都给**
+   （2026-10-09 只给深色做过；2026-10-10 扩到共用：浅色是默认主题）。
+   它是全 App 出现次数最多的品牌面（每条用户消息一个），两个主题的观感大头都由它决定；
+   纯色靛蓝压在底上偏平，叠一道同族渐变之后气泡才"有光"。
+   ⚠️ `background` 保持是变量（对比度闸只读它），渐变叠在上面；
+   渐变两端的白字对比度由 gen-mp-theme.mjs 的注释手工守着。 */
+.user {
+  background-image: var(--td-brand-gradient);
+  /* 浅色：中性冷灰投影（与 .hero-mark 同一条理由：品牌色投影在浅底上泛紫） */
+  box-shadow: 0 6rpx 16rpx 0 rgba(29, 42, 74, 0.16);
+}
+
+.theme-dark .user {
+  box-shadow: 0 8rpx 22rpx 0 rgba(63, 91, 246, 0.26);
 }
 
 .user-text {
@@ -422,7 +451,7 @@
 
 /* ── 步骤组：一轮「想 → 调工具 → 再想」聚成一条 ──────────────────── */
 .steps {
-  margin-bottom: 28rpx;
+  margin-bottom: var(--drc-space-3);
 }
 
 /* 收起时只占一行。这是这一页最重要的窗口管理 */
@@ -485,10 +514,15 @@
 }
 
 .steps-card {
+  /* 与 .reply 同一张卡（2026-10-08 用户报「消息背景和 steps 这种组合看起来不太顺眼」）：
+     同底色、同描边、同圆角。⚠️ 但**内边距不能照抄**（用户随后报「steps 上下边距太大」）：
+     卡内每一行（.step-think / .step-tool）自己已经带 14rpx 上下、24rpx 左右，
+     卡片再加一圈 24rpx，于是每条过程行上下各多出一倍 —— 八条下来整张卡高出一倍。
+     ⇒ 卡只负责"表面"，缩进交给内层：上下 8rpx、左右 24rpx（与 .reply 的文字对齐）。 */
   background: var(--td-bg-color-container);
   border: 2rpx solid var(--td-component-border);
-  border-radius: 20rpx;
-  padding: 6rpx 0;
+  border-radius: var(--drc-radius-lg);
+  padding: var(--drc-space-1) var(--drc-space-3);
   overflow: hidden;
 }
 
@@ -518,14 +552,17 @@
    的 overflow 滚动**不生效**（开发者工具可能看起来像生效，真机不会动）。
    max-height 而非 height：短组（只有一条）不该留一块空白。 */
 .steps-scroll {
-  max-height: 44vh;
+  /* 44vh 太满：一个展开的过程组能吃掉半屏，滚动位置就被推走了（用户截图里那些
+     "空白的高盒子"很可能就是它撑出来的）。收到 30vh —— 展开看得到全貌，又不吃掉正文。 */
+  max-height: 30vh;
 }
 
 /* ── 组内：思考 ───────────────────────────────────────────────────── */
 .step-think {
   display: flex;
   align-items: center;
-  padding: 14rpx 24rpx;
+  /* 左右由 .steps-card 的 padding 统一给（见那里的注释），这里只留纵向的一档 */
+  padding: var(--drc-space-1) 0;
 }
 
 .step-think-mark {
@@ -552,7 +589,8 @@
 .step-tool {
   display: flex;
   align-items: flex-start;
-  padding: 18rpx 24rpx;
+  /* 同 .step-think：左右由卡片统一给，行里只留纵向（18rpx → 10rpx，别把过程条撑散） */
+  padding: 10rpx 0;
 }
 
 .step-tick {
@@ -582,6 +620,14 @@
 .step-tick.args {
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
+}
+
+/* 被中断：不是失败，是"没跑完"。⚠️ 底色刻意用**中性**而不是 error：
+   画成红的等于告诉用户"这一步坏了"，而它只是被停掉了（宿主侧的中断是用户自己点的）。 */
+.step-tick.cancelled {
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-placeholder);
+  border: 2rpx solid var(--td-border-level-1-color);
 }
 
 .step-main {
@@ -664,10 +710,16 @@
 }
 
 .reply {
+  /* ⚠️ 2026-10-08 用户裁决：**卡片回来**。
+     当天我照 `V3-PLAN §2.3` 的取证把它改成"通栏透明底"，用户看真机后报
+     「消息卡片样式消失」—— 原来那张卡片是把正文与"过程"分开的那一层，
+     去掉之后整页只剩一堆浮着的文字，长正文反而更难读。
+     ⇒ 取证的"**通栏**"这一半保留（width:100%，不做窄气泡），
+       "无容器"那一半撤回。圆角与内边距走 token，免得迁移棘轮又涨回去。 */
   width: 100%;
   box-sizing: border-box;
-  padding: 22rpx 26rpx;
-  border-radius: 8rpx 26rpx 26rpx 26rpx;
+  padding: var(--drc-space-3);
+  border-radius: var(--drc-radius-lg);
   background: var(--td-bg-color-container);
   border: 2rpx solid var(--td-component-border);
   font-size: 30rpx;
@@ -713,19 +765,43 @@
 }
 
 /* 光标：还在写的时候让人知道没结束 */
-.caret {
-  display: inline-block;
-  width: 4rpx;
-  height: 30rpx;
-  background: var(--td-brand-color);
-  margin-left: 4rpx;
-  vertical-align: text-bottom;
-  animation: caret-blink 1s steps(1) infinite;
+/* 「正在X」文案机 + typing 三点（2026-10-08 推翻重排新增）。
+   ⚠️ `.caret`（逐帧闪的竖条光标）**随这次改版退役**：取证里那句「流式表现：没有光标」
+   是实测结论——竖条在正文里会被读成内容的一部分，而"还在写"是另一层信息。
+   退役它不是删功能，是把它换成一个不冒充内容的位置。 */
+.runbar {
+  display: flex;
+  align-items: center;
+  margin: var(--drc-space-2) 0 var(--drc-space-3);
 }
 
-@keyframes caret-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
+.runbar-text {
+  margin-left: var(--drc-space-2);
+  font-size: var(--drc-font-sm);
+  color: var(--td-text-color-secondary);
+}
+
+/* typing-indicator：三颗点错峰弹跳（取证 `typingBounce` 的形状）。 */
+.typing {
+  display: flex;
+  align-items: center;
+}
+
+.typing-dot {
+  width: 10rpx;
+  height: 10rpx;
+  margin-right: var(--drc-space-1);
+  border-radius: var(--drc-radius-pill);
+  background: var(--td-text-color-placeholder);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; margin-right: 0; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-6rpx); opacity: 1; }
 }
 
 /* ── 系统提示（裁剪提示等） ───────────────────────────────────────── */
@@ -769,9 +845,18 @@
  * 有审批/提问卡或附件行时按钮整个不渲染（wxml 的 wx:if），所以这里不用给它们让位。
  */
 .jump {
-  position: fixed;
-  right: 24rpx;
-  bottom: calc(146rpx + env(safe-area-inset-bottom));
+  /* ⚠️ 2026-10-08 用户报「位置太靠下，一半在文本框上，一半在消息上」。
+   * 原来这里是 `position: fixed` + 一个**猜出来的** bottom（146rpx + 安全区）：
+   * 输入区一多行/少行、一改留白，它就压在输入框上或掉进消息区。
+   * ⇒ 改成**贴在输入区自己的上沿**：它是 `.composer` 的子元素（wxml 挪进来了），
+   *   `bottom: 100%` 永远跟着输入区的高度走，不再有魔数。
+   *   `.composer` 因此需要 position: relative（上面已加）。 */
+  position: absolute;
+  right: var(--drc-space-3);
+  /* 间隙用与输入栏上下留白同一档（--drc-space-2），于是"栏"与"FAB"是同一个节奏
+     （用户：「fab 配合往上挪，让整体看起来协调一些」）。它贴着栏的上沿，
+     栏一加高它自己就跟着上移，不需要另写一个偏移。 */
+  bottom: calc(100% + var(--drc-space-2));
   z-index: 10;
   width: 56rpx;
   height: 56rpx;
@@ -807,6 +892,45 @@
   border-bottom: 3rpx solid var(--td-text-color-secondary);
   transform: rotate(45deg);
   margin-top: -4rpx;
+}
+
+/* 流式环（取证 `--streaming` + `__ring`）：正在写的时候那颗键自己转。
+   纯 CSS 的一圈边框缺口，**不引图标库**——这一页目前一个图标组件都没用。 */
+.jump-ring {
+  position: absolute;
+  right: -6rpx;
+  top: -6rpx;
+  width: 22rpx;
+  height: 22rpx;
+  border-radius: var(--drc-radius-pill);
+  border: 3rpx solid var(--td-brand-color);
+  border-top-color: transparent;
+  animation: jump-spin 0.9s linear infinite;
+}
+
+@keyframes jump-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 往上翻时新到几条。落在键的左上角，不占键的点击区。 */
+.jump-badge {
+  position: absolute;
+  left: -10rpx;
+  top: -10rpx;
+  min-width: 30rpx;
+  height: 30rpx;
+  padding: 0 var(--drc-space-1);
+  border-radius: var(--drc-radius-pill);
+  /* ⚠️ 底色用**品牌色**而不是 danger 档 —— 这一条是被对比度闸逼出来的：
+     `--td-error-color-6` 在深色主题里被覆写成 #e8757d（那是给**字**用的浅红），
+     白字压上去只有 2.62:1；改用 `-1` 档则浅色主题下变成 #fff0ed，白字更读不出来。
+     而且它本来就不是"错误"：角标说的是"有 N 条你没看"，品牌色与页面上其它强调一致。 */
+  background: var(--td-brand-color);
+  color: var(--td-text-color-anti, #ffffff);
+  font-size: var(--drc-font-xs);
+  line-height: 30rpx;
+  text-align: center;
 }
 
 /* ── 审批 / 提问面板 ──────────────────────────────────────────────── */
@@ -890,15 +1014,33 @@
   color: var(--td-text-color-secondary);
 }
 
+/* 三颗按钮的排布：**每颗都带右边距，容器用等量负边距抵消最后一颗** ——
+   相邻两颗之间恒有 16rpx，首尾仍与卡片内容对齐。
+   为什么不用 `+` / `:last-child`：小程序 wxss 对这两个选择器不可靠（可能整条静默不生效）；
+   也不用 flex `gap`：老 webview 不支持时静默变 0 间距，而那正是本缺陷的形状
+   ——旧写法只给 `.act-danger` 加了 margin-left，于是**两颗实心主按钮之间是 0 间距**，
+   并排的两块蓝被读成一条（用户 2026-10-08："两个按钮粘在一起了"）。 */
 .actions {
   display: flex;
   margin-top: 26rpx;
+  margin-right: -16rpx;
 }
 
 .act {
-  flex: 1 1 auto;
+  /* 等分（flex-basis 0），**不**按文字长度分：三颗并排时「拒绝」只有 2 个字，
+     auto 基准下它比「允许一次」窄 ~30px，整行看着像三个不同重量的东西；
+     而且 border-box 的 2rpx 描边会让白按钮凭空比同字数的实心按钮宽 2px。
+     等分后渲染层实测三颗 108/108/108，间隙恒 16rpx。 */
+  flex: 1 1 0%;
+  /* 垂直居中用 flex、不用 line-height：line-height 居中只对**单行文本**成立，
+     而这三颗按钮的文案在不同机型上可能折行（108px 宽装「允许一次」已经接近临界），
+     折行之后 line-height 会让文字整体偏上。flex 居中与行数无关。
+     （描边那 2px 与本条无关：`.act-secondary` 用的是 inset box-shadow，不参与布局。） */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: 84rpx;
-  line-height: 84rpx;
+  margin-right: 16rpx;
   text-align: center;
   border-radius: 16rpx;
   font-size: 28rpx;
@@ -910,10 +1052,32 @@
   font-weight: 600;
 }
 
+/* 「始终允许」= **白按钮**（三颗里只有一颗实心主按钮，这是次级动作）。
+   它压在同样白的卡片（--td-bg-color-container）上，所以描边不是装饰：
+   去掉描边它就是一整块与卡片同色的空白，看着像"这儿没有按钮"。
+   深色下这两个变量各自解析成深底 + 亮描边，语义不变。
+   ⚠️ 描边用 **inset box-shadow**、不用 border：小程序的原生 flex 布局会把
+   border 加在等分结果之外 —— 三颗同为 border-box + flex-basis 0%，实测带
+   border 的那颗仍恒宽 2px（107.3 / 109.3 / 107.3）。inset shadow 画在盒内、
+   不参与布局，三颗宽高严格相等（探针 .tmp/approve-geometry.mjs 钉着这条）。 */
+.act-secondary {
+  background: var(--td-bg-color-container);
+  box-shadow: inset 0 0 0 2rpx var(--td-component-border);
+  color: var(--td-text-color-primary);
+}
+
 .act-danger {
   background: var(--td-error-color-1);
   color: var(--td-error-color-6);
-  margin-left: 16rpx;
+}
+
+/* 「始终允许」的 scope 说明（按钮上太挤放不下的那半句边界）。
+   字号比按钮小两档、用次要色：它是补充说明，不该跟按钮抢注意力。 */
+.act-hint {
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  color: var(--td-text-color-secondary);
 }
 
 /* ── 提问 ─────────────────────────────────────────────────────────── */
@@ -994,21 +1158,75 @@
 }
 
 /* ── 输入区：胶囊 + 文字发送按钮 ──────────────────────────────────── */
+/* composer（2026-10-08 推翻重做）：整颗胶囊 + 内部分段。
+   取证 `ChatInputBar` ——「一整个 24px 圆角胶囊（inset 描边 + 大投影）」，
+   内部自上而下 textarea → toolbar。描边用 inset 而不是外框：外框会让胶囊
+   在深色底上变成"一个有边的输入框"，而它要读起来像一块浮起的面板。 */
+/* composer：2026-10-08 回到改动前的形态。
+ *
+ * ⚠️ 用户两次报它「很突兀」「严重变形、圆角太大、间隙太大，还不如原来的样式」。
+ * 根因不是某个数值，是**层次用错了**：我给胶囊加了投影 + 描边 + 两行布局，
+ * 于是它在页面里像一件"浮起来的另一个控件"。
+ * 而这个页面里的层次是：顶栏一条 hairline、待办一条灰带、内容用卡片。
+ * **输入区不是内容块**，它是一块操作面 —— 操作面用扁平 + 底色，不加框。
+ * ⇒ 恢复：扁平一行、胶囊只有底色、按钮贴在右侧。
+ */
 .composer {
   flex: 0 0 auto;
+  position: relative; /* 供「回到最新」那颗贴在自己上沿（见 .jump 的注释） */
   display: flex;
   align-items: center;
-  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
+  /* ⚠️ 这条走过四版（用户四轮反馈：太高 → 没有变化 → 去掉也难看 → 重新设计）：
+   *
+   *   ① 16rpx/24rpx/24rpx + 安全区 → 太高
+   *   ② 收到 8rpx/4rpx → 用户"没有一点变化"（大头是 34px 的安全区，动 2px 没用）
+   *   ③ 整个去掉安全区 → 用户"直接贴在下面也不好看"
+   *
+   * 终态：**安全区留着**（去掉之后输入行压在屏幕最底边，指示条上方空着一段，反而不像话），
+   * 但把这一整条做"薄"且"成组件"：
+   *   · 行高 80rpx（原 88rpx），上下留白 8rpx（原 16rpx）；
+   *   · 顶部两个圆角 ⇒ 视觉上它是"一条输入栏"浮在页面上，
+   *     底下那截安全区就属于这条栏，而不是"页面多出来的高度"。
+   */
+  /* ⚠️ 安全区**取一半**，且**上下取一样**（用户 2026-08-08 第五、六轮：
+   *   「又太高了，保留一半安全区」→「输入框上边距也设置一样的高度」）。
+   *
+   *   前五版依次是：全留 → 收到 2px → 整个去掉 → 全留但做薄 → 一半（底）。
+   *   最后一版把**上边距也设成同一档**：输入行于是落在这一条的正中间，
+   *   上下一样宽；再让 FAB 的间隙用同一档（见 .jump），整条看上去是一个节奏。
+   *
+   *   记一条教训：前五版我都在"猜用户想要多少像素"，而用户心里的是**对称**，
+   *   像素只是结果。他第六轮才把这句话说出来。
+   */
+  /* ⚠️ 上边距是安全区的**四分之一**、下边距是**一半**（用户 2026-08-08 连续两轮：
+   *   「输入框上边距也设置一样的高度」→ 我给成一半 → 「上边距又太高了，保留一半」）。
+   *   即上 = 下的一半的两分之一。前六版我都在"猜一个像素"，用户心里其实是
+   *   "下面留够不碰指示条、上面别把内容顶开" —— 两边要的不是同一个数。 */
+  padding: calc(env(safe-area-inset-bottom) * 0.25) var(--drc-space-3) calc(env(safe-area-inset-bottom) * 0.5);
   background: var(--td-bg-color-container);
-  border-top: 2rpx solid var(--td-component-border);
+  border-top: none;
+  /* ⚠️ 顶部圆角已去掉（用户 2026-08-08：「composer 的圆角去掉」）。
+     它是我上一版为了"让这一条读起来是组件"加的，而用户要的是一条**平齐**的输入栏 ——
+     圆角让它在页面上"浮"出一个头，反而和上方内容区脱开。
+     分隔仍靠那一层极轻的投影（它不改变轮廓，只在滚动时提示"下面有一层"）。 */
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.04);
 }
 
 .composer-pill {
   flex: 1 1 auto;
   min-width: 0;
-  height: 88rpx;
-  padding: 0 28rpx;
+  height: 80rpx;
+  padding: 0 var(--drc-space-3);
   border-radius: 999rpx;
+  /* ⚠️ 灰（secondarycontainer）——输入栏现在是白底，灰胶囊浮得出来（改动前就是这个形态）。
+   *
+   * ⚠️⚠️ 这套浅色主题里 `--td-bg-color-page` 与 `--td-bg-color-secondarycontainer`
+   *   **是同一个值**（都指向 `--td-gray-color-1`）—— 所以"拿 secondarycontainer
+   *   当底色来做层次区分"在这里**根本不产生任何区分**。我上一轮把 composer 底色
+   *   换成 page 色，胶囊于是和背景同色，整个隐形；待办条同理（它一直是灰的）。
+   * ⇒ 这一页的层次只有两档：**页面 = gray（--td-bg-color-page）**、
+   *   **靠前的东西 = 白（--td-bg-color-container）**。胶囊、待办条、回复卡都用白。
+   *   这条也写进了判据（不许用 secondarycontainer 做"浮起来"的底色）。 */
   background: var(--td-bg-color-secondarycontainer);
   display: flex;
   align-items: center;
@@ -1017,8 +1235,10 @@
 .composer-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 88rpx;
-  line-height: 88rpx;
+  /* 与改动前逐字相同：单行、固定 88rpx。
+     之前为了多行加的 min-height/max-height 是"输入框自己长高 → 下面留白"的来源。 */
+  height: 80rpx;
+  line-height: 80rpx;
   font-size: 30rpx;
   color: var(--td-text-color-primary);
 }
@@ -1032,17 +1252,18 @@
    "这个圆是能点的还是只是个装饰"；两个字把这件事说完了。 */
 .composer-send {
   flex: 0 0 auto;
-  height: 88rpx;
-  padding: 0 32rpx;
+  height: 80rpx;
+  padding: 0 28rpx;
   border-radius: 999rpx;
   background: var(--td-brand-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: 16rpx;
+  margin-left: var(--drc-space-2);
 }
 
 .composer-send.off {
+  /* 输入栏是白底，禁用态用灰 —— 灰在白上看得见（用白就会隐形，那是我上一版犯的错）。 */
   background: var(--td-bg-color-secondarycontainer);
 }
 
@@ -1161,4 +1382,43 @@
   margin-bottom: 8rpx;
   font-size: 22rpx;
   color: var(--td-text-color-anti, #ffffff);
+}
+
+/* ── 演示横幅（与 sessions 页那条同款）──────────────────────────────
+   两页各写一份而不是抽组件：它只有一条规则集，抽成组件要带 js/json/wxml/wxss
+   四个文件，而"组件预算"在这个项目里是**硬的**（见 docs/MINI-PROGRAM.md）。
+   两处选择器同名同值，改的时候两边一起改（判据盯的是那句文案的出处，不是样式）。 */
+.demo-strip {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 0 0 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.demo-dot {
+  flex: 0 0 auto;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--td-text-color-placeholder, #9aa0a6);
+}
+
+.demo-text {
+  min-width: 0;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+/* 没发出去那一行的标记（2026-08-09）。
+   放在气泡**外面**、靠右对齐：它是那句话的状态，不是消息内容。
+   颜色用 error 档而不是 placeholder —— 灰字读起来像脚注，用户会扫过去。 */
+.user-failed {
+  margin-top: var(--drc-space-1);
+  text-align: right;
+  font-size: var(--drc-font-sm);
+  color: var(--td-error-color-6, #d54941);
 }

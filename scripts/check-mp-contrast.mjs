@@ -44,6 +44,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PAIRS } from '../theme/tokens.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MP = ROOT
@@ -102,7 +103,10 @@ const hex = (c) => '#' + c.slice(0, 3).map((x) => Math.round(x * 255).toString(1
 function readVars(css) {
   const vars = new Map()
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  for (const m of clean.matchAll(/(--td-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) {
+  // ⚠️ 也要收 `--drc-*`：阶段 C1 之后语义 token（--drc-fg-* / --drc-surface-*）
+  // 写在同一个生成物里，而它们的值是 var(--td-…)。不收它们，下面那一段
+  // "token 搭配"就取不到颜色。
+  for (const m of clean.matchAll(/(--(?:td|drc)-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) {
     vars.set(m[1], m[2].trim())
   }
   return vars
@@ -113,7 +117,7 @@ function resolveVar(name, vars, seen = new Set()) {
   seen.add(name)
   const raw = vars.get(name)
   if (raw == null) return null
-  const m = raw.match(/^var\(\s*(--td-[a-z0-9-]+)\s*(?:,\s*([\s\S]+))?\)$/)
+  const m = raw.match(/^var\(\s*(--(?:td|drc)-[a-z0-9-]+)\s*(?:,\s*([\s\S]+))?\)$/)
   if (!m) return toRgb(raw)
   // 有兜底值就用兜底（TDesign 用这个表达"这个变量本主题没覆盖"）
   if (m[2]) {
@@ -362,6 +366,45 @@ for (const t of themeList) {
         })
       }
     }
+  }
+}
+
+/**
+ * 阶段 C1 新增：**设计 token 的合法搭配**逐条验（深浅两套各验一遍）。
+ *
+ * ── 为什么这一段不能省 ────────────────────────────────────────────────
+ * 上面那个主循环是**事后**的：它从 wxss 里抽"这条规则设了 color、它的底是谁"，
+ * 抽得到才算得到。而 token 层把前景与底色**起了名**（`--drc-fg-muted` /
+ * `--drc-surface-card`），在页面还没用上它们之前，主循环一组都不会算 ——
+ * 于是"这个搭配本身过不过 4.5"这件**设计决定**没人验，等 C3 真用上了才发现
+ * 深色下差 0.3，那时改颜色要动十几处。
+ * 所以这里反过来：**先声明允许的搭配（`tokens.mjs` 的 PAIRS），再逐条算**。
+ * 计划 §7 阶段 C1 的判据原话就是"对比度闸覆盖全部新组合"。
+ */
+for (const t of themeList) {
+  const { vars } = themes[t]
+  for (const [fgName, bgName] of PAIRS) {
+    const fg = resolveVar(fgName, vars)
+    const bg = resolveVar(bgName, vars)
+    if (!fg || !bg) {
+      problems.push(`PAIRS 里的 ${fgName} × ${bgName} 在 ${t} 主题下解析不出颜色 —— 这条搭配验不了`)
+      continue
+    }
+    const ratio = contrast(fg, bg)
+    // token 是给正文用的（最小档 20rpx 也远没到"大字"那条线），一律按 4.5 判。
+    rows.push({
+      theme: t,
+      file: 'theme/tokens.mjs',
+      line: 0,
+      sel: `${fgName} × ${bgName}`,
+      ratio,
+      threshold: 4.5,
+      fg: hex(flatten(fg, bg)),
+      bg: hex(bg),
+      src: fgName,
+      via: '设计 token 搭配',
+      ok: ratio >= 4.5,
+    })
   }
 }
 

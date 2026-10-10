@@ -1,9 +1,12 @@
 'use strict'
 
 var client = require('../../core/client.js')
+var copy = require('../../core/copy.js')
 var codec = require('../../core/codec.js')
+var demo = require('../../core/demo.js')
 var env = require('../../core/env.js')
 var theme = require('../../core/theme.js')
+var toast = require('../../core/toast.js').toast
 
 /**
  * 工作区别名：目录的最后一段（`/Users/linbin/dsh-remote-control` → `dsh-remote-control`）。
@@ -13,10 +16,20 @@ var theme = require('../../core/theme.js')
  * 完整路径弱化在第二行当补充（2026-10-04 用户要的"工作区 tag + 目录弱化"）。
  * 空目录返回 ''——调用方据此不渲染这个 chip（会话没挂目录时第二行退化成 id）。
  */
+/**
+ * 从工作区路径里取**项目名**（列表里那一颗 chip）。
+ *
+ * ⚠️ 必须同时认两种分隔符（2026-08-09 review 抓到的真 Windows 缺陷）：
+ * 原来只 `split('/')`，于是 Windows 主机的工作区 `C:\Users\me\project`
+ * 整条被当成一段，`slice(0, 24)` 之后 chip 显示成 `C:\Users\me\proje…` ——
+ * 而用户要的是 `project`。
+ * ⚠️ 同理首尾的反斜杠也要去掉：`C:\Users\me\project\` 不该被算成"最后一段是空的"。
+ *   （Windows 是用户最常用的平台，而主机在那里 —— 工作区路径是它给的。）
+ */
 function workspaceTagOf(path) {
-  var raw = String(path || '').replace(/\/+$/, '')
+  var raw = String(path || '').replace(/[\\/]+$/, '')
   if (!raw) return ''
-  var parts = raw.split('/')
+  var parts = raw.split(/[\\/]+/)
   var last = ''
   for (var i = 0; i < parts.length; i++) {
     if (parts[i]) last = parts[i]
@@ -84,20 +97,22 @@ function badgeFor(state, running) {
  *   留给真需要警示的场景，而这一代没有。
  */
 function statusView(status) {
+  // ⚠️ 四句都从共享表取（`core/copy.js`）：同一语义在桌面那颗 pill 上说的是同一句。
+  // 「在线」对「已连接」、「离线中」对「已断开」原本都是各说各话，F2 统一到共享表。
   switch (status) {
     case 'online':
-      return { label: '在线', theme: 'success' }
+      return { label: copy.statusText('online'), theme: 'success' }
     case 'connecting':
     case 'pairing':
-      return { label: '连接中', theme: 'primary' }
+      return { label: copy.statusText('connecting'), theme: 'primary' }
     case 'error':
       // 当前**不可达**：client.js 的状态枚举里有 error，但没有任何
       // `_setStatus('error', …)` 调用点。留着它是"枚举的一半"——删掉的话将来真出现
       // error 时会被 default 吞成"未连接"，而那正是这里已经说好的一句错话
       // （用户离线不等于没配对过）。文案与颜色都按"不报警"的产品口径定过。
-      return { label: '离线中', theme: 'default' }
+      return { label: copy.statusText('offline'), theme: 'default' }
     default:
-      return { label: '未连接', theme: 'default' }
+      return { label: copy.statusText('notLinked'), theme: 'default' }
   }
 }
 
@@ -111,9 +126,9 @@ function pad2(n) {
  */
 function linkAge(ms) {
   if (!(ms >= 0)) return ''
-  if (ms < 10000) return ' · 刚刚有消息'
-  if (ms < 60000) return ' · ' + Math.floor(ms / 1000) + '秒前有消息'
-  return ' · ' + Math.floor(ms / 60000) + '分钟前有消息'
+  if (ms < 10000) return '，刚刚有消息'
+  if (ms < 60000) return '，' + Math.floor(ms / 1000) + '秒前有消息'
+  return '，' + Math.floor(ms / 60000) + '分钟前有消息'
 }
 
 /**
@@ -143,17 +158,57 @@ function formatTime(iso) {
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
 }
 
+/**
+ * 空态的文案（阶段 C5）。
+ *
+ * ⚠️ 它原来是一个**三元套三元**，写在 wxml 的一行里
+ * （`archivedCount ? … : (status === 'online' ? … : …)`）。那样写的代价不是难读，
+ * 而是**下一次加一个状态就得再嵌一层** —— 而空态恰恰是最容易加状态的地方。
+ * 挪到 JS 里之后，加一种情况就是加一个分支，wxml 一行都不用动。
+ *
+ * 分成标题与说明两行而不是挤进一句：原来那句把"为什么没有"和"归档在哪儿"
+ * 拼成一句话，扫读时两个信息会互相盖掉。
+ *
+ * @param {number} archivedCount 已归档条数
+ * @param {string} status 连接状态
+ * @returns {{title: string, desc: string}}
+ */
+function emptyCopy(archivedCount, status) {
+  if (archivedCount) {
+    return { title: '这里没有进行中的会话', desc: archivedCount + ' 条已归档，在下面' }
+  }
+  if (status === 'online' || status === 'demo') {
+    return { title: '还没有会话', desc: '点上面的加号新建一条会话' }
+  }
+  return { title: '还没有会话', desc: '连上主机后，这里会列出它的会话' }
+}
+
 Page({
   data: {
     paired: false,
+    /**
+     * 演示模式（`core/demo.js`）。
+     *
+     * 它只在**未配对**时可以进（入口就在扫码那张 hero 里），所以演示与真实配对
+     * 永不共存 —— 这是安全性的关键：演示态下这个页面**不读任何 client 状态**，
+     * 也就不可能把假数据写进真实链路。
+     *
+     * 为什么要它：审核员没有主机、没有二维码，打开只看到「扫描主机二维码」⇒
+     * 看不到任何实质功能（典型的「功能不完整」拒审）；首次用户同样需要一个
+     * "先看看是什么"的入口。
+     */
+    demo: false,
+    /** 演示横幅那句说明（从 demo.js 取，两个页面共用一份，避免各自漂移）。 */
+    demoBanner: '',
     sessions: [],
     /** G1 待办优先：在等你处理的会话（点开即进那条会话），没有时整区不占地方 */
     pending: [],
     pendingCount: 0,
     status: 'idle',
     statusText: '',
-    statusLabel: '未连接',
+    statusLabel: copy.statusText('notLinked'),
     statusTheme: 'default',
+    hostReadyText: copy.statusText('relayReady'),
     /** G5：最近一帧什么时候到的（只说时间不说内容），拼在主机卡那行后面 */
     linkAgeText: '',
     hostLabel: '',
@@ -165,10 +220,8 @@ Page({
      * 主机那边明明有 `cmd.archive_session`，列表也真的收到了那些行。
      * 现在单独成一组、默认折叠，展开后每行都能取消归档。
      */
-    archivedSessions: [],
     archivedCount: 0,
     /** 归档区的折叠状态。页面自己的界面状态，不随列表刷新重置。 */
-    archivedOpen: false,
     /** 正在归档/取消归档的会话 id。空串 = 没有正在进行的那一次。 */
     archivingId: '',
     /** 正在让主机新建会话。没有这个状态，连点会真的造出好几条空会话 */
@@ -189,6 +242,17 @@ Page({
     server: '',
     diag: '',
     diagGlobal: 'wx',
+    /**
+     * 第一次拿到列表之前，已连上的那一屏要有骨架而不是空白（阶段 C5）。
+     *
+     * ⚠️ 它只在"连上了但列表还没到"时为真：没连上时显示的是**空态**（那时确实
+     * 什么都没有，画一排骨架是在撒谎说"数据马上就来"）。用 status 而不是定时器
+     * 判断 —— 定时器会把"主机慢"误报成"在加载"。
+     */
+    listLoading: false,
+    /** 空态的标题与说明。⚠️ 由 JS 给而不是在 wxml 里套三元（见 wxml 那处注释）。 */
+    emptyTitle: '',
+    emptyDesc: '',
     /** 主题。themeName 用来选文案（"切换到深色" vs "切换到浅色"），
         themeClass 挂在根容器上（深色时是 theme-dark，浅色时是空串）。 */
     themeName: 'light',
@@ -198,6 +262,21 @@ Page({
   onLoad: function () {
     this.client = client.getClient()
     theme.applyTo(this)
+    /**
+     * 把右上角「…」菜单里的**转发**打开（2026-10-10）。
+     *
+     * ⚠️ 不调这个的话，小程序默认**不显示**转发入口 —— 页面上那颗分享键
+     * （`<button open-type="share">`）仍然能弹出面板，但"从菜单转发"这条路是断的。
+     * 两个入口都要有：一个是显式的按钮，一个是用户习惯的「…」。
+     *
+     * ⚠️ `withShareTicket: false`：分享凭证是给"群排行 / 群 ID"用的，
+     * 我们没有任何按群区分的东西 —— 开了只会多要一个用不上的能力。
+     */
+    try {
+      wx.showShareMenu({ withShareTicket: false, menus: ['shareAppMessage'] })
+    } catch (e) {
+      /* 老基础库没有这个 API：那颗分享键仍然能用（open-type 是标签级能力）。 */
+    }
     var p = env.probe()
     this.setData({
       server: this.client.server || '',
@@ -210,6 +289,35 @@ Page({
     })
   },
 
+  /**
+   * 转发（用户点分享键、或「…」→ 转发时由微信调用）。
+   *
+   * ## ⚠️ 这里**不做任何奖励**，这是有意的（2026-10-10 用户裁决）
+   *
+   * 曾经设计过"分享后解锁暗色模式"。**没有做**，两个原因：
+   *   ① 以功能解锁为奖励诱导分享属于微信的**诱导分享**，而
+   *      `docs/MP-REVIEW.md` 的「代码侧已确认（可以放心提交）」里明写着
+   *      「无诱导分享 / 无诱导关注 / 无外链跳转 / 无支付」—— 做了那条声明就成了假的；
+   *   ② 微信**不告诉你分享有没有成功**：这个回调在你点「转发」那一刻就触发，
+   *      **没有成功回调**（平台刻意如此，防刷）。所以"分享后解锁"实际只能是
+   *      "点了转发就解锁"，点了再取消也算 —— 那个机制本来就不成立。
+   *
+   * ⇒ 判据 `e2e/mp-review-safety.test.mjs` 钉住：这段文案里不许出现
+   * "解锁 / 奖励 / 领取" 这类词。改这里之前先看那条判据的注释。
+   *
+   * `path` 指到首页（不带参数）：分享出去的人打开就是扫码入口，
+   * 而不是某条会话 —— 没有配对的人打开一条不存在的会话是空屏。
+   */
+  onShareAppMessage: function () {
+    return {
+      // ⚠️ 标题里**不许有 `·` `：` 一类符号**（用户 2026-08-09：「文案简单一些，
+      // 不要带特殊符号和括号」）—— 判据 `e2e/mp-copy-discipline.test.mjs` 逐条扫
+      // 字符串字面量，第一版写成 `DSH 助手 · 在手机上…` 当场被打红。
+      title: '用 DSH 助手在手机上查看和跟进电脑上跑的 AI 任务',
+      path: '/pages/sessions/sessions',
+    }
+  },
+
   onShow: function () {
     // 系统栏要在**每次 onShow** 重设一次：setNavigationBarColor 是每页实例一次性生效的，
     // 从别的页返回时微信会用 page json / app.json 的静态配色（#ffffff）把顶栏冲掉 ——
@@ -217,6 +325,16 @@ Page({
     // 2026-10-04 用户实测报了这个不一致）。onLoad 只保证首屏。
     theme.applyTo(this)
     this._off = this.client.on(this._onEvent.bind(this))
+    // ⚠️ 演示态**先返回**，一行 client 逻辑都不走。
+    //
+    // 为什么必须在最前面：下面每一行都会动真实链路（`_sync` 会读 client 的列表、
+    // `connect()` 会真的去连中继）。演示模式下走这些的后果不是"多花点流量"，
+    // 而是**假会话可能被真数据覆盖**、以及一个纯看界面的动作**真的发起了网络连接**。
+    // 演示的全部承诺就是"只看不连"（见 `core/demo.js` 的红线）。
+    if (this.data.demo) {
+      this.setData({ paired: true })
+      return
+    }
     this._sync()
     if (!this.client.isPaired()) {
       this.setData({ paired: false })
@@ -282,10 +400,10 @@ Page({
       // 停在列表页时 chat 页不在（小程序一次只活一页），提问卡没有地方弹。
       // 静默吞掉 = 主机阻塞等回答而手机毫无痕迹（与 chat 页跨会话那句同因）。
       // 不弹卡（卡属于某条会话），但必须让人知道：点进对应会话即收原卡。
-      wx.showToast({ title: '主机在另一条会话里提问', icon: 'none' })
+      toast('主机在另一条会话里提问')
     } else if (evt.kind === 'payload' && evt.payload.t === 'ev.permission_request') {
       // 审批与提问同一性质（主机阻塞等决定，180 秒超时自动拒绝），对称处理。
-      wx.showToast({ title: '主机在另一条会话里等审批', icon: 'none' })
+      toast('主机在另一条会话里等审批')
     } else if (evt.kind === 'payload' && evt.payload.t === 'ev.result' && evt.payload.ok === false) {
       /**
        * 列表页发起的命令失败时，这一句是**唯一**的出口（2026-10-07 补，§5-10）。
@@ -297,7 +415,7 @@ Page({
        *
        * 只弹失败：`ok:true` 的回执是成功路径的正常噪音，弹它会把这里变成噪声源。
        */
-      wx.showToast({ title: String(evt.payload.message || '主机没能完成这条指令').slice(0, 40), icon: 'none' })
+      toast(String(evt.payload.message || '主机没能完成这条指令'))
     } else if (evt.kind === 'status') {
       this._renderStatus(evt.status, evt.text)
       // 配对成功：状态一变，wxml 的 `wx:if` 分支自己就切到会话列表了。
@@ -339,7 +457,6 @@ Page({
            * 规则：**解配 = 这一页归零**。凡是"从主机读来的量"都在这张单子里，
            * 而这张单子要能被一条判据数出来（见 e2e 的 needs-pair 归零那条）。
            */
-          archivedSessions: [],
           archivedCount: 0,
           archivingId: '',
           pending: [],
@@ -348,7 +465,7 @@ Page({
           // 原来这里写死 manualOpen:true，于是"解配后重新连"必然顶开一整片
           // 输入控件——用户说的就是这条。
         })
-        wx.showToast({ title: String(evt.text || '会话已失效，请重新扫码配对').slice(0, 40), icon: 'none' })
+        toast(String(evt.text || '会话已失效，请重新扫码配对'))
       }
     } else if (evt.kind === 'error') {
       // 配对失败要回到可重试的状态，否则「正在配对…」会一直停在那儿
@@ -367,15 +484,70 @@ Page({
       if (!p.connectSocket || msg.indexOf('SOCKET_UNAVAILABLE') >= 0 || msg.length > 40) {
         wx.showModal({ title: '连接失败', content: msg, showCancel: false })
       } else {
-        wx.showToast({ title: msg.slice(0, 40), icon: 'none' })
+        toast(msg)
       }
     }
   },
 
   _sync: function () {
+    // 演示态下**一次都不读 client**：`_sync` 是"把真实链路的状态画到界面上"，
+    // 而演示里的每一样东西都不是从那儿来的。不设这道闸的话，任何一次
+    // client 事件（含中继的连接状态变化）都会把演示列表冲成空列表。
+    if (this.data.demo) return
     this._renderStatus(this.client.status, this.client.statusText)
     this._renderSessions(this.client.sessions)
     this.setData({ hostLabel: this.client.hostLabel })
+  },
+
+  onEnterDemo: function () {
+    this.setData({
+      demo: true,
+      demoBanner: demo.BANNER,
+      paired: true,
+      busy: false,
+      manualOpen: false,
+      hostLabel: '演示主机',
+      status: 'demo',
+      statusLabel: '演示',
+      statusText: '示例数据，未连接任何主机',
+      statusTheme: 'default',
+      connecting: false,
+      linkAgeText: '',
+      // 先归零再灌演示数据：这两个字段是"从主机读来的量"，
+      // 带着上一次的真实数据进演示就是两种来源混在一张列表里。
+      sessions: [],
+      pending: [],
+      pendingCount: 0,
+      archivedCount: 0,
+      archivingId: '',
+      creating: false,
+    })
+    this._renderSessions(demo.sessions())
+  },
+
+  /** 退出演示：回到未配对态（不触碰 client —— 它本来就没被扰动过）。 */
+  onExitDemo: function () {
+    this.setData({
+      demo: false,
+      demoBanner: '',
+      paired: false,
+      sessions: [],
+      pending: [],
+      pendingCount: 0,
+      archivedCount: 0,
+      hostLabel: '',
+      statusText: '',
+      statusLabel: copy.statusText('notLinked'),
+      statusTheme: 'default',
+      // 主机卡那行的兜底文案。⚠️ 它原来写死在 wxml 里（`{{statusText || '已就绪'}}`），
+      // 于是「已就绪」成了小程序自己抄的一份宿主文案——共享表建立后那必须从表里取。
+      hostReadyText: copy.statusText('relayReady'),
+    })
+  },
+
+  /** 演示态下的动作提示：说清"为什么点不动"，而不是静默吞掉。 */
+  _demoGuard: function () {
+    toast('演示模式，配对后可用')
   },
 
   _renderStatus: function (status, text) {
@@ -390,7 +562,17 @@ Page({
     // 离线后"几秒前" frozen 在那里就是假事实：帧已经不来了，"5 秒前有消息"会一直
     // 停在 5 秒。状态走掉就清掉它，连上后第一帧自然会重建。
     if (status !== 'online') patch.linkAgeText = ''
+    // 刚连上、列表还没到 ⇒ 骨架（阶段 C5）。列表一到 `_renderSessions` 就把它关掉。
+    // ⚠️ 没连上时**不**给骨架：那一刻确实什么都没有，画一排骨架是在撒谎。
+    if (status === 'online' || status === 'demo') {
+      patch.listLoading = !this._listArrived
+    } else {
+      patch.listLoading = false
+    }
     this.setData(patch)
+    // 空态那两句跟着连接状态变（"连上主机后…" vs "点新建…"），所以状态一变就要重算。
+    var copy = emptyCopy(this.data.archivedCount || 0, status)
+    this.setData({ emptyTitle: copy.title, emptyDesc: copy.desc })
   },
 
   /**
@@ -496,21 +678,34 @@ Page({
       else items.push(row)
       if (r.pending) pending.push({ id: r.id, title: r.title, badgeText: r.badgeText, workspace: r.workspace })
     }
-    // 折叠状态是**页面自己的**界面状态，不是会话的属性：它不参与渲染层的数据口径，
-    // 也不该随列表刷新被重置（刷新时用户刚展开的折叠区又合上，是最烦人的那类）。
+    // 空态文案在这里派生：wxml 只管取，不再自己套三元（见 emptyCopy 的注释）。
+    var copy = emptyCopy(archived.length, this.data.status)
+    this._listArrived = true
     this.setData({
       sessions: items,
-      archivedSessions: archived,
       archivedCount: archived.length,
       pending: pending,
       pendingCount: pending.length,
-      // 保留这两个字段：wxml 里还有别处在读它们吗？——没有。但删掉它们会让
-      // 「已隐藏 N 个」这句话**整个消失**，而那个 strip 掉的分支正是本次要修的东西，
-      // 留着两个新字段比留一个孤零零的计数好判断。
-      hiddenArchived: 0,
-      hiddenText: '',
+      // 只留 `archivedCount`：用户 2026-08-08 裁定「归档只显示数量」，
+      // 于是 `archivedSessions`（那一组行）、展开状态、对应 handler 一并删掉。
+      // `hiddenArchived` / `hiddenText` 是"归档改成单独一组"之前那套计数，
+      // 从那时起就没人读了 —— 一起删掉（留着的唯一作用是让人以为它们还有用）。
+      //
+      // ⚠️ `archivingId` **必须在这里归零**：它标着"这一行的归档请求在飞"。
+      // 归档失败后如果不清，那一行会永远带着"处理中"徽标，而它与"真的还在处理"
+      // 长得一模一样，用户分辨不出来（这条是 `e2e/mp-sessions-list` 逼出来的：
+      // 清理归档代码时我把这个共用实现一起删了，判据当场就红）。
+      archivingId: '',
+      // 列表到了：骨架撤掉（它只在"连上了但还没到"时出现）。
+      listLoading: false,
+      emptyTitle: copy.title,
+      emptyDesc: copy.desc,
     })
   },
+
+  // ⚠️ `onOpenSettings` 已随设置页一起删除（2026-10-08 用户裁决："设置页和相关按钮去掉，
+  // 目前不需要这个功能"）。留着它就是一个指向不存在页面的入口 —— 真被点到的表现是
+  // 停在当前页且什么都不发生，比没有这个按钮更难查。
 
   refresh: function () {
     this.client.listSessions()
@@ -519,6 +714,10 @@ Page({
   onOpen: function (e) {
     var id = e.currentTarget.dataset.id
     var title = e.currentTarget.dataset.title || id
+    // 演示会话带 `demo=1` 跳过去：chat 页据此走本地示例事件，**不碰 socket**。
+    // 判据取 id 前缀而不是页面的 demo 标志——那样"从演示列表点进去"这件事
+    // 自带证据，chat 页不需要知道上一页处于什么模式。
+    var demoFlag = demo.isDemoId(id) ? '&demo=1' : ''
     // 记下"最后点开的那条会话的工作区"——新建会话的默认值取自这里（见 onNewSession）。
     // 为什么记在**点开**而不是"最近更新"：那是会话自己的属性，而用户点开列表
     // 常常只是看一眼就走；真正表达"我接下来要在哪个项目里干活"的是点开哪一条。
@@ -526,7 +725,12 @@ Page({
     var ws = e.currentTarget.dataset.workspace
     this._lastWorkspace = ws || this._lastWorkspace || ''
     wx.navigateTo({
-      url: '/pages/chat/chat?id=' + encodeURIComponent(id) + '&title=' + encodeURIComponent(title),
+      url:
+        '/pages/chat/chat?id=' +
+        encodeURIComponent(id) +
+        '&title=' +
+        encodeURIComponent(title) +
+        demoFlag,
     })
   },
 
@@ -565,7 +769,7 @@ Page({
       // 不自动展开（2026-10-05 用户：默认收起）。说清去哪儿点，让用户自己展开。
       wx.showModal({
         title: '当前环境无法扫码',
-        content: '这个运行环境没有扫码能力。请点下面的「手动输入」，把主机显示的「二维码内容」粘进去。',
+        content: '这个环境不能扫码，请点手动输入，把主机上的二维码内容粘进去',
         showCancel: false,
       })
       return
@@ -583,7 +787,7 @@ Page({
           var why = codec.pairingQrError(text)
           wx.showModal({
             title: why ? '二维码里的信息不合法' : '无法识别',
-            content: why || '这不是 DSH 远程控制的配对二维码。二维码应以 dshr:/p? 开头。',
+            content: why || '这不是本小程序的配对二维码。二维码应以 dshr:/p? 开头。',
             showCancel: false,
           })
           return
@@ -626,7 +830,7 @@ Page({
   onPasteClipboard: function () {
     var api = typeof wx !== 'undefined' ? wx : null
     if (!api || typeof api.getClipboardData !== 'function') {
-      wx.showToast({ title: '当前环境不支持读取剪贴板，请长按输入框粘贴', icon: 'none' })
+      toast('当前环境不支持读取剪贴板，请长按输入框粘贴')
       return
     }
     var self = this
@@ -634,14 +838,14 @@ Page({
       success: function (res) {
         var text = String((res && res.data) || '').trim()
         if (!text) {
-          wx.showToast({ title: '剪贴板是空的', icon: 'none' })
+          toast('剪贴板是空的')
           return
         }
         self.setData({ pasteText: text })
         self.onPaste({ detail: { value: text } })
       },
       fail: function () {
-        wx.showToast({ title: '读取剪贴板失败，请长按输入框粘贴', icon: 'none' })
+        toast('读取剪贴板失败，请长按输入框粘贴')
       },
     })
   },
@@ -659,14 +863,14 @@ Page({
       // 说清是哪一项，别让用户以为"再粘一次就好了"。
       var why = codec.pairingQrError(text)
       if (why) {
-        wx.showToast({ title: why.slice(0, 40), icon: 'none' })
+        toast(why)
         return
       }
       // 也接受直接粘 6 位配对码 —— 人们就是这么试的
       var digits = text.replace(/\D/g, '')
       if (/^\d{6}$/.test(digits)) {
         this.setData({ token: digits, pasteText: '' })
-        wx.showToast({ title: '已填入配对码', icon: 'none' })
+        toast('已填入配对码')
       }
       return
     }
@@ -695,7 +899,7 @@ Page({
       return
     }
     // 不自动展开（2026-10-05 用户：默认收起）；说清去哪儿输入。
-    wx.showToast({ title: '已读取密钥，请点「手动输入」填配对码', icon: 'none' })
+    toast('已读取密钥，请点手动输入填配对码')
   },
 
   onTokenInput: function (e) {
@@ -711,15 +915,15 @@ Page({
     var psk = String(this.data.psk || '').trim()
 
     if (!/^wss?:\/\//.test(server)) {
-      wx.showToast({ title: '服务地址需以 ws:// 或 wss:// 开头', icon: 'none' })
+      toast('服务地址要以 ws 或 wss 开头')
       return
     }
     if (!psk) {
-      wx.showToast({ title: '缺少配对密钥，请先扫码', icon: 'none' })
+      toast('缺少配对密钥，请先扫码')
       return
     }
     if (!/^\d{6}$/.test(token)) {
-      wx.showToast({ title: '请输入主机显示的 6 位配对码', icon: 'none' })
+      toast('请输入主机显示的 6 位配对码')
       return
     }
     this.client.hostLabel = this.data.hostLabel
@@ -732,13 +936,24 @@ Page({
     wx.setClipboardData({
       data: this.data.diag || env.summary(),
       success: function () {
-        wx.showToast({ title: '已复制环境自检', icon: 'none' })
+        toast('已复制环境自检')
       },
     })
   },
 
-  /** 解除配对。确认框里说清后果：之后要重新扫码。 */
+  /**
+   * 解除配对。确认框里说清后果：之后要重新扫码。
+   *
+   * 演示态下这颗按钮是**另一个动作**：退出演示。复用同一个槽位是因为它们
+   * 在各自语境里都是"不要现在这个了"——而演示态下"解除配对"这个动作
+   * 根本不该存在（那时没有任何配对可解），把按钮换成"退出演示"比让它弹一句
+   * "演示模式不可用"更直接。
+   */
   onUnpair: function () {
+    if (this.data.demo) {
+      this.onExitDemo()
+      return
+    }
     var self = this
     wx.showModal({
       title: '解除配对',
@@ -769,7 +984,7 @@ Page({
   onToggleTheme: function () {
     var r = theme.toggle(this)
     if (!r.saved) {
-      wx.showToast({ title: '已切换，但没存住，下次启动会变回浅色', icon: 'none', duration: 2500 })
+      toast('已切换，但没存住，下次启动会变回浅色', { duration: 2500 })
     }
   },
 
@@ -784,15 +999,6 @@ Page({
    * 3. **成功就直接进去**：新建就是为了马上发第一条指令，停在列表上再点一次是多余的。
    *    跳过去之后 chat 页会照常去读历史 —— 空会话读到空内容，是正常的。
    */
-  /**
-   * 展开 / 收起归档区。
-   *
-   * 单独一个方法而不是在 wxml 里写 `!archivedOpen` 取反：那种写法在
-   * `setData` 的异步视图更新里会连点两次落到同一个值上（两次都读到 false）。
-   */
-  onToggleArchived: function () {
-    this.setData({ archivedOpen: !this.data.archivedOpen })
-  },
 
   /**
    * 归档一条会话（长按列表里那一行）。
@@ -810,77 +1016,43 @@ Page({
     var title = e.currentTarget.dataset.title || id
     if (!id || this.data.archivingId) return
     if (this.data.status !== 'online') {
-      wx.showToast({ title: '还没连上主机，稍后再试', icon: 'none' })
+      toast('还没连上主机，稍后再试')
       return
     }
     wx.showActionSheet({
-      itemList: ['归档「' + String(title).slice(0, 12) + '」'],
+      itemList: ['归档 ' + String(title).slice(0, 12)],
       success: function () {
         self._doArchive(id, true)
       },
     })
   },
 
-  /** 取消归档（归档区里那一行的长按）。与归档同一个出口，方向相反。 */
-  onArchivedLongPress: function (e) {
-    var self = this
-    var id = e.currentTarget.dataset.id
-    var title = e.currentTarget.dataset.title || id
-    if (!id || this.data.archivingId) return
-    if (this.data.status !== 'online') {
-      wx.showToast({ title: '还没连上主机，稍后再试', icon: 'none' })
-      return
-    }
-    wx.showActionSheet({
-      itemList: ['取消归档「' + String(title).slice(0, 12) + '」'],
-      success: function () {
-        self._doArchive(id, false)
-      },
-    })
-  },
-
   /**
-   * 点归档区里的一行 → **取消归档**（而不是打开它）。
+   * 真发归档命令（长按确认之后到这里）。
    *
-   * 为什么点开不是"进会话"：主机对归档会话的每一步都直接拒绝
-   * （`ensureRunnable` 会先恢复它，但手机这边发指令的路径是 chat 页，
-   * 那里没有任何"这条已归档"的提示）——用户会进去、输一段话、发出去、
-   * 然后拿到一句"主机没有回应"。所以归档行**不给"打开"这条路**。
-   *
-   * 取消归档是可逆动作里最容易判断的一个（用户点它就是想拿回来），所以
-   * 单击直接做，长按那条 ActionSheet 入口保留给"我想确认一下"的人。
-   */
-  onArchivedTap: function (e) {
-    var id = e.currentTarget.dataset.id
-    if (!id || this.data.archivingId) return
-    this._doArchive(id, false)
-  },
-
-  /**
-   * 真去归档 / 取消归档。
-   *
-   * `archivingId` 是**进行中那一条的 id** 而不是布尔：连点两行时，
-   * 第二次能被"已经有一次在跑"挡掉，而用户仍看得见是哪一行在忙。
-   * 判据不能用 `busy`（那是配对用的）或 `creating`（那是新建会话用的）——
-   * 共用它们会让归档的进度显示到别的按钮上。
+   * ⚠️ 这一段在 2026-08-08 那轮清理里被我误删过一次：我把"取消归档"那条入口
+   * 连同它的 handler 一起删掉时，把 `_doArchive` 也一并删了 —— 而**归档本身仍然可达**
+   * （主列表长按仍提供"归档 …」"），于是点下去会抛 `self._doArchive is not a function`。
+   * ⇒ 归档/取消归档是**同一个出口的两个方向**：裁剪掉的方向可以删，这个共用实现不能删。
+   *   `e2e/mp-sessions-list.test.mjs` 那两条（真发命令 / 主机拒绝时给原话）当场就红了，
+   *   这也说明"判据钉住行为"在清理时是有用的。
    */
   _doArchive: function (id, archived) {
     var self = this
     this.setData({ archivingId: id })
-    var done = function (res) {
-      self.setData({ archivingId: '' })
-      if (!res || !res.ok) {
-        // 主机给的原因**原样**给用户：这一条的命令空间大
-        //（「这一代主机不支持」与「会话正在运行，不能归档」）必须分别说出来。
-        wx.showToast({ title: String((res && res.message) || '归档失败').slice(0, 40), icon: 'none' })
-        return
+    // 收尾一律回到 `_renderSessions()`：它会重画列表并**清掉 archivingId**
+    // （"进行中"那个徽标）。失败路径也必须走它 —— 忘了清就是那一行永远转圈，
+    // 而它转圈的样子与"还在处理"一模一样，用户分辨不出来。
+    Promise.resolve(this.client.archiveSession(id, archived)).then(function (reply) {
+      if (reply && reply.ok === false) {
+        // 主机的话原样给用户：它拒收有具体理由（还在运行、没有权限……），
+        // 换成一句"操作失败"就是把排查线索抹掉了。
+        toast(String(reply.message || '归档没有成功'))
       }
-      // 成功**主动刷新**一次，不等主机补推的那一帧：用户点完就该看到列表变了。
-      // 主机侧那条补推是兜底（应对别处改的会话），这里这条是"我点的，我确认"。
-      self.refresh()
-    }
-    this.client.archiveSession(id, archived).then(done, function (e) {
-      done({ ok: false, message: (e && e.message) || '归档失败' })
+      self._renderSessions()
+    }, function () {
+      toast('归档没有成功')
+      self._renderSessions()
     })
   },
 
@@ -905,12 +1077,18 @@ Page({
   onNewSession: function (picked) {
     var self = this
     if (this.data.creating) return
+    // 演示态下说清是演示，而不是让它掉进下面"还没有配对主机"那一支——
+    // 那句在演示里是**假话**（用户会说"我明明看得见会话"）。
+    if (this.data.demo) {
+      this._demoGuard()
+      return
+    }
     if (!this.client.isPaired()) {
-      wx.showToast({ title: '还没有配对主机', icon: 'none' })
+      toast('还没有配对主机')
       return
     }
     if (this.data.status !== 'online') {
-      wx.showToast({ title: '还没连上主机，稍后再试', icon: 'none' })
+      toast('还没连上主机，稍后再试')
       return
     }
     // 没显式指定就用「当前分组」（长按那条路会把选中的工作区传进来）。
@@ -927,7 +1105,7 @@ Page({
     var done = function (res) {
       self.setData({ creating: false })
       if (!res || !res.ok || !res.sessionId) {
-        wx.showToast({ title: String((res && res.message) || '新建会话失败').slice(0, 40), icon: 'none' })
+        toast(String((res && res.message) || '新建会话失败'))
         return
       }
       // 新会话此刻还没有名字（主机要等第一条指令之后才起标题）。这里给它一个**诚实的**
@@ -962,6 +1140,10 @@ Page({
    * 弹一个空列表比不弹更像坏了。
    */
   onNewSessionLongPress: function () {
+    if (this.data.demo) {
+      this._demoGuard()
+      return
+    }
     var seen = {}
     var order = []
     var all = this.data.sessions || []
@@ -974,7 +1156,7 @@ Page({
     }
     if (!order.length) {
       // 一个都没见过 = 没有可选项。与其弹空列表，不如明说"为什么没有"。
-      wx.showToast({ title: '还没有会话用过工作区', icon: 'none' })
+      toast('还没有会话用过工作区')
       return
     }
     var labels = order.map(function (w) {

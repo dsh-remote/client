@@ -119,6 +119,7 @@ function savePairing(pairing) {
 
 function clearPairing() {
   remove(KEY_PAIRING)
+  clearDrafts()
 }
 
 /**
@@ -158,8 +159,50 @@ function setServerUrl(u) {
   return write(KEY_SERVER, u)
 }
 
+/* ── 草稿（V3-PLAN §7 阶段 C4）─────────────────────────────────────
+ *
+ * 为什么要有：手机上打字被打断是常态（切个微信、锁屏、接个电话），
+ * 而回工作台重打一遍长指令的成本高得离谱（旧版这些字直接没了）。
+ *
+ * ⚠️ **按会话分开存**：一条草稿属于"那条会话里没发出去的话"，
+ * 混在一起的话切会话会把上一条会话的半句话带过去 —— 那是更糟的一种错：
+ * 它会让用户把 A 会话的半句话发到 B 会话去。
+ *
+ * ⚠️ 它不是秘密，但**明文落盘**：草稿里可能有用户自己打的字。
+ * 这是产品权衡（同一条消息正文本来也会进协议，只是走端到端加密的通道）；
+ * 微信的存储按 app + 设备沙箱隔离，`clearPairing` 那次退出配对会一并清掉草稿。
+ */
+var KEY_DRAFT = 'drc.draft.v1'
+
+/** 取某条会话的草稿；没有或读失败都返回空串（读失败不许抛——它只是打字）。 */
+function loadDraft(sessionId) {
+  if (!sessionId) return ''
+  var all = read(KEY_DRAFT, {})
+  if (!all || typeof all !== 'object') return ''
+  var text = all[sessionId]
+  return typeof text === 'string' ? text : ''
+}
+
+/** 存草稿。空串 = 删掉这一条（发出去之后就是这么收尾的）。返回是否写成功。 */
+function saveDraft(sessionId, text) {
+  if (!sessionId) return false
+  var all = read(KEY_DRAFT, {})
+  if (!all || typeof all !== 'object') all = {}
+  if (!text) delete all[sessionId]
+  else all[sessionId] = String(text)
+  return write(KEY_DRAFT, all)
+}
+
+/** 退出配对时清草稿：配对没了，这些字对谁都没有意义，还留在盘上只是负担。 */
+function clearDrafts() {
+  return remove(KEY_DRAFT)
+}
+
 module.exports = {
   installId: installId,
+  loadDraft: loadDraft,
+  saveDraft: saveDraft,
+  clearDrafts: clearDrafts,
   loadPairing: loadPairing,
   loadPairingError: loadPairingError,
   savePairing: savePairing,

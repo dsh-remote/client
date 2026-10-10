@@ -1,10 +1,14 @@
 'use strict'
 
 var client = require('../../core/client.js')
+var copy = require('../../core/copy.js')
+var store = require('../../core/session-store.js')
 var ScrollPolicy = require('../../core/scroll-policy.js').ScrollPolicy
+var demo = require('../../core/demo.js')
 var theme = require('../../core/theme.js')
 var markdown = require('../../core/markdown.js')
 var env = require('../../core/env.js')
+var toast = require('../../core/toast.js').toast
 var activityLib = require('../../core/activity.js')
 
 /**
@@ -72,6 +76,14 @@ var MAX_BLOCKS = 400
  */
 var MAX_ATTACH = 4
 var IMAGE_QUALITY = 0.6
+
+/**
+ * 「到底了」的容差（像素）：**比贴底判定那 24px 大得多**。
+ *
+ * 贴底要灵敏（差几像素就该算到底），而"锚点按旧高度生效了没有"要钝
+ * —— 差一点是排版抖动，回头是布局真的变了。两者用同一个阈值必然出错。
+ */
+var SETTLE_SLOP = 120
 /**
  * 图片压到多小：长边钉死在这个像素数。
  *
@@ -223,7 +235,7 @@ var MAX_TEXT_PER_BLOCK = 20000
  * （`TEXT_TRIM_NOTICE`）——用户知道那里本来有内容，而不是以为模型没写过。
  */
 var MAX_TOTAL_TEXT_CHARS = 30000
-var TEXT_TRIM_NOTICE = '…（这段较早的正文已省略：手机上只保留最近 ' + MAX_TOTAL_TEXT_CHARS + ' 字）'
+var TEXT_TRIM_NOTICE = '这段较早的正文已省略，手机上只保留最近 ' + MAX_TOTAL_TEXT_CHARS + ' 字'
 var DELTA_FLUSH_MS = 100
 var DELTA_FLUSH_CHARS = 4096
 var THINK_TICK_MS = 1000
@@ -366,6 +378,12 @@ Page({
   data: {
     sessionId: '',
     title: '',
+    /**
+     * 演示模式（`core/demo.js`）：从演示会话点进来时为真。
+     * 顶栏那句"演示"、横幅那句话都由它驱动；见 `onLoad` 的说明。
+     */
+    demo: false,
+    demoBanner: '',
     /** 块流：轮次分隔 / 用户指令 / 思考阶段 / 工具调用 / 回复正文 / 系统提示 */
     blocks: [],
     inputText: '',
@@ -379,6 +397,15 @@ Page({
     toView: 'anchor-a',
     /** 是否已贴底。false 时浮出「回到最新」 */
     atBottom: true,
+    /**
+     * 「正在X」文案机（2026-10-08 推翻重排新增，V3-PLAN §7 C3）。
+     * 空串 = 这一刻没有正在进行的动作 ⇒ 整块不渲染（wxml 的 `wx:if`）。
+     */
+    runStatus: '',
+    /** 正在流式（正文未 done）⇒ 回到最新那颗键上转一个环。 */
+    streaming: false,
+    /** 用户不在底部时新到的条数（落底清零）。最多显示「40+」。 */
+    newCount: 0,
     /**
      * 待办清单（内核 `todo/write` → `ev.todo`，全量快照）。
      * 一项：`{content, status: 'pending' | 'in_progress' | 'completed'}`。
@@ -422,6 +449,12 @@ Page({
      * 「超长就省略」的表达力，交给它自己判断就会出现「有的截断有的不截」。
      */
     modelName: '',
+    /**
+     * 草稿提示（V3-PLAN §7 阶段 C4）。ⓘ 胶囊左段那一行显示的是**别的会话**的草稿，
+     * 而本会话自己的草稿直接回到输入框里（`inputText`）——
+     * 两个都显示会把输入框里已有的字重复一遍。
+     */
+    draftText: '',
     /**
      * 过程块渲不渲染。见文件头 SHOW_STEPS 的说明：**数据照落，只是不显示**。
      */
@@ -498,6 +531,10 @@ Page({
      * 页面只负责把它的返回值画到 `data.atBottom` / `data.toView` 上。
      */
     this.scroll = new ScrollPolicy(function () { return Date.now() })
+    // 复量落底的次数预算。**初值必须是 0**：`_settleBottom` 的守卫虽然是 NaN-safe 的
+    // （`!(x > 0)`），但没有初值就等于"任何时候调它都从这里开始"——
+    // 探针里正是无初值导致递归不停（2026-10-09 深度 review）。
+    this._settleLeft = 0
     this._draining = false
     this._historyBusy = false
     this._historyStarted = false
@@ -507,6 +544,20 @@ Page({
     this._replayTodos = undefined
     /** 翻页游标：由主机给，原样回传。null = 已经到最早了 */
     this._historyBefore = null
+    /**
+     * 演示模式（`core/demo.js`）。
+     *
+     * 从演示会话点进来时 URL 带 `demo=1`（由 sessions 页的 `onOpen` 加），
+     * 于是这一页**完全不碰 `client`**：不订阅事件、不取历史、不拉挂起卡，
+     * 只把 `demo.events()` 喂进**同一个 `_onEvent`**。
+     *
+     * 为什么复用 `_onEvent` 而不是另写一套渲染：演示要给人看的就是"这东西长什么样"，
+     * 而另写一套必然与真机漂移（演示好看、真机难看，或者反过来）。
+     * 复用之后，演示里看到的一切都是真实渲染路径的产物。
+     */
+    this._demo = options.demo === '1'
+    this._demoFed = false
+    if (this._demo) this.setData({ demo: true, demoBanner: demo.BANNER })
   },
 
   onReady: function () {
@@ -534,10 +585,47 @@ Page({
       .exec()
   },
 
+  /**
+   * 演示模式：把 `core/demo.js` 的示例事件喂进**同一个 `_onEvent`**。
+   *
+   * 只在第一次喂（`_demoFed`）——`onShow` 每次切回都会调到这里，
+   * 重复喂的后果是同一条回复在屏幕上叠两遍（`_queueDelta` 按 messageId 累积，
+   * 会把 delta 再加一次）。
+   *
+   * 为什么**一次性喂完**而不是用定时器模拟流式：
+   * - `_queueDelta` 自己带 flush 定时器，一次性喂进去照样按帧渲染；
+   * - 定时器在这页会与 `_deltaTimer` / `_thinkTimer` / 卡片倒数三套计时器共存，
+   *   而演示态下那些计时器本就不该被卷进来（它们各自绑真实数据）。
+   * 少一套计时器就少一类"演示数据把真机状态搅乱"的可能。
+   */
+  _startDemo: function () {
+    if (this._demoFed) return
+    this._demoFed = true
+    var list = demo.events()
+    for (var i = 0; i < list.length; i++) this._onEvent(list[i])
+    // 喂完把跟随状态翻回来：演示内容是一次性到的，停在"用户正在回看"的话
+    // 首屏就不在最新处（这一页的约定是"最新在最底"）。
+    this.scroll.onReconnect()
+    this.setData({ atBottom: true })
+  },
+
   onShow: function () {
+    // ⚠️ 演示态**先返回**：这一页没有会话可读、没有主机可问。
+    //
+    // 下面每一行都是对真实链路的调用（订阅事件、`listSessions`、`getPending`、
+    // 取历史）。演示模式下走这些不只是白费——`listSessions` 会真的发帧，
+    // 而这一页的承诺是"只看不连"（见 `core/demo.js` 的红线）。
+    if (this._demo) {
+      this._retheme()
+      this._startDemo()
+      return
+    }
     this._off = this.client.on(this._onEvent.bind(this))
     this._retheme()
     this._renderBar()
+    // 草稿：回前台时取回（V3-PLAN §7 阶段 C4）。切后台/锁屏/来电话是打断的主路径，
+    // 而这些字没了就得重打一遍长指令。⚠️ `_restoreDraft` 内部对"已经有内容"有让位规则。
+    if (this.data.sessionId) this._restoreDraft(this.data.sessionId)
     // 卡片倒数是 setTimeout 链，onHide 停掉之后**必须在这里重启**：
     // 不重启的话，从后台回来那张卡还挂着，而"还剩 N 秒"冻在离开时的数字上
     // （主机那边照常在走，用户按着一个看着还有 2 分钟的按钮其实早就作废了）。
@@ -556,6 +644,47 @@ Page({
     // 挂起的审批/提问是「以 dsh 为准」：进会话主动拉一次，别等主机恰好有变化。
     // 断链期间错过的那一帧，靠这一拉补回来（同一 requestId，页面按卡覆盖）。
     this.client.getPending(this.data.sessionId)
+    /**
+     * ⚠️ **光靠上面那一拉不够**（2026-10-09 用户报「审批窗卡着、手机没有弹窗」的根因）。
+     *
+     * 现场：`getPendingCalls=6` / `lastGetPendingPending=0` / `lastGetPendingAgoSec=71` /
+     * `now=1` / `oldestSec=58` ⇒ 手机问得比卡产生的还勤，而那张卡是**最后一次补拉之后**
+     * 才挂上的。于是它要等到**下一次**进会话页才拿得到 —— 中间那 180 秒里主机一直阻塞。
+     *
+     * 但那一帧**其实已经到手机了**（client 层收到过，只是当时没有页面订阅）。
+     * 所以这里直接取 client 记住的那一张，**当场画出来**，不再等一个网络往返。
+     *
+     * 为什么必须**两处都留**：取本地那张覆盖的是"卡已到达但没人在听"，
+     * `getPending` 覆盖的是"卡在断链期间产生、根本没到过手机"。
+     * 少任何一条都留一个洞。
+     */
+    var pending = this.client.pendingCardOf ? this.client.pendingCardOf(this.data.sessionId) : null
+    /**
+     * ⚠️ **先对齐、再补画**（2026-10-09 深度 review 抓到的 P0）。
+     *
+     * `data.pendingPermission` / `data.pendingQuestion` 活在**页面实例**上，`onHide` 不清它们。
+     * 用户退到别的会话期间那张卡被桌面答掉 ⇒ 那一帧收不到（页面已退订）⇒
+     * 回到这条会话时它还挂着，而 `pendingCardOf` 这时返回 null、什么都不画。
+     * ⇒ 两个真相源必然分叉：client 说没有、屏幕上还亮着，还会被重新起一次倒计时表。
+     *
+     * 所以：**client 手里没有、或对不上当前这张，就地撤掉。**
+     * 这一条同时是 P0-2 的一半解药 —— 复活那张死卡时，client 侧已被作废，不会再回来。
+     */
+    // ⚠️ 演示态**跳过对齐**：那批卡片由 `core/demo.js` 喂进 `_onEvent`，
+    // 从来没经过真 client（这一页的承诺是"只看不连"），拿 client 当准会把它们全撤掉。
+    if (!this._demo) this._alignPendingCards(pending)
+    if (pending) {
+      // ⚠️ **补画的那一张不震、也不碰运行态**（2026-10-09 深度 review 的 P2-5）。
+      // `_onPermission` / `_onQuestion` 里有 `running: false` 与 `wx.vibrateLong()`，
+      // 它们的设计前提是"**新到的**一张卡" ⇒ 要震、且这一轮因为等回答而停下。
+      // 而这里画的是**已经挂了一会儿**的那张：震一次是"你回来它又响一遍"，
+      // 而把 `running` 按成 false 会让顶栏/发送键显示"空闲"，要等下一帧
+      // `ev.session_changed` 才纠正得回来。⇒ 补画走一个安静的分支。
+      this._restored = true
+      if (pending.t === 'ev.permission_request') this._onPermission(pending)
+      else if (pending.t === 'ev.question_request') this._onQuestion(pending)
+      this._restored = false
+    }
   },
 
   /**
@@ -591,6 +720,12 @@ Page({
   },
 
   onHide: function () {
+    /**
+     * ⚠️ 节流之后**必须**在这里补一刀：页面被切走时微信不一定派发 `onInputBlur`
+     * （切后台、锁屏、来电话），而节流窗口里那一次还没落盘 ⇒ 那些字会丢。
+     * `_flushDraft` 是幂等的（没有待写就直接返回），所以多调这一次没有副作用。
+     */
+    this._flushDraft()
     this._clearDeltaTimer()
     this._flushDelta()
     this._stopThinkTick()
@@ -602,6 +737,11 @@ Page({
   },
 
   onUnload: function () {
+    // 节流那个定时器也要清：它会 setData/写盘，而页面已经没了。
+    if (this._draftTimer) {
+      clearTimeout(this._draftTimer)
+      this._draftTimer = null
+    }
     // 与 onHide 同一套收尾：**退页之后 delta 定时器还会醒**，那一刻页面已经销毁，
     // setData 落到一个不存在的页面上（不报错、不生效，纯泄漏）。
     // onHide 清了而 onUnload 没清，走"从会话列表返回"这条路时就会漏。
@@ -627,21 +767,94 @@ Page({
   // 判据全在 `core/scroll-policy.js` 里（纯函数、可单测）；这一段只负责
   // "把它的结论画到 data 上"。原来这些判据内联在 onScroll 里、跨六个方法被写，
   // 想回答"此刻跟不跟"得横着扫整页——见 scroll-policy.js 的文件头。
+  /**
+   * 「正在X」文案机（2026-10-08 推翻重排新增）。
+   *
+   * ## 为什么用文案代替光标
+   *
+   * 取证（V3-PLAN §2.3）「流式表现：**没有光标**。用文案机代替」——
+   * `正在整理答案` / `正在继续处理` / `深度思考中...` / `资料搜集中...`。
+   * 旧版那根逐帧闪的竖条（`.caret`）有两个问题：它在正文**里面**，
+   * 于是被读成内容的一部分；而"还在写"其实是另一层信息，它该独立成一行、能被余光扫到。
+   *
+   * ## 为什么这几句是穷举的
+   *
+   * 四句覆盖协议里"这一轮正在干什么"的全部形态：跑起来了、在想、在调工具、在整理输出。
+   * ⚠️ **不是五句**：加一句"马上就好"要跟着加一条判据说明它什么时候出现，
+   * 而它与「正在整理答案」对用户是同一件事——文案越多，每一句被看见的概率越低。
+   * 不在四句之内 = 没有正在进行的动作 = 整块不渲染。
+   */
+  _runStatusOf: function () {
+    if (this._demo) return '正在整理答案'
+    var blocks = this.data.blocks || []
+    var thinking = false
+    var calling = false
+    var streaming = false
+    for (var i = blocks.length - 1; i >= 0 && i >= blocks.length - 12; i--) {
+      var b = blocks[i]
+      if (b.kind === 'steps' && (b.live || !b.done)) {
+        if (b.items) {
+          for (var j = 0; j < b.items.length; j++) {
+            var it = b.items[j]
+            if (it.type === 'think' && !it.done) thinking = true
+            if (it.type === 'tool' && (it.phase === 'started' || it.phase === 'args')) calling = true
+          }
+        }
+      }
+      if (b.kind === 'text' && !b.done) streaming = true
+    }
+    // ⚠️ **让位规则**（2026-10-08 推翻重排时补上）：live 步骤组本身就在说
+    // "这一轮在干什么"，那时再冒出一行「正在…」就是两行状态互相抢——
+    // 那正是 2026-10-06 用户报"冲突"的那件事，已有判据钉着（见 mp-chat-blocks 的
+    // 「运行态不再单独占一行」）。
+    // 所以这一行只在**过程组不可见时**说话，而那正是它真正补上的那个洞：
+    // `showSteps=false`（默认）或过程组已收起来时，运行态此前**完全没有**落点。
+    var liveGroupVisible = false
+    for (var k = 0; k < blocks.length; k++) {
+      if (blocks[k].kind === 'steps' && blocks[k].live && this.data.showSteps) {
+        liveGroupVisible = true
+        break
+      }
+    }
+    if (liveGroupVisible) return ''
+    if (streaming) return '正在整理答案'
+    if (calling) return '资料搜集中'
+    if (thinking) return '深度思考中'
+    if (this.data.running) return '正在继续处理'
+    return ''
+  },
+
+  /**
+   * 状态机与两条派生读数的**唯一**刷新点。
+   *
+   * ⚠️ 把它们收在一处，是因为它们有三个触发源（滚动、块提交、run-state），
+   * 各写一遍就会出现"某一帧环在转但文案是空的"这种自相矛盾的画面。
+   */
+  _refreshRunState: function () {
+    var status = this._runStatusOf()
+    var streaming = status === '正在整理答案'
+    if (status === this.data.runStatus && streaming === this.data.streaming) return
+    this.setData({ runStatus: status, streaming: streaming })
+  },
+
   onScroll: function (e) {
     var r = this.scroll.onScroll(e.detail || {})
     // 只在**跟随状态变了**的那一帧 setData：这一帧每滑动一次就来一次，
     // 而 setData 是这一页最贵的操作（同值提交也会触发渲染层 diff）。
     if (r.atBottom !== this.data.atBottom) this.setData({ atBottom: r.atBottom })
+    // 回到底部 = "我看见了"，未读计数立刻归零（它数的是"你没看见的那几条"）。
+    if (r.atBottom && this.data.newCount !== 0) this.setData({ newCount: 0 })
   },
 
   onScrollToLower: function () {
     this.scroll.onScrollToLower()
     if (!this.data.atBottom) this.setData({ atBottom: true })
+    if (this.data.newCount !== 0) this.setData({ newCount: 0 })
   },
 
   onJumpLatest: function () {
     this.scroll.onJumpLatest()
-    this.setData({ atBottom: true })
+    this.setData({ atBottom: true, newCount: 0 })
     this._scrollToBottom()
   },
 
@@ -653,6 +866,69 @@ Page({
    */
   _scrollToBottom: function () {
     this.setData({ toView: this.scroll.scrollToBottom() })
+  },
+
+  /**
+   * 落到底部之后**复量一次**：大文本没排完时锚点已经生效了（2026-10-09 用户报
+   * 「重新进运行中的会话滚动位置不对，尤其有大文本消息时」）。
+   *
+   * ## 病根
+   *
+   * `_commit` 在 `setData` 的**回调**里写 `toView`，而那个回调只保证"数据到了视图层"，
+   * **不保证 `rich-text` 排完了版**。一条两万字的消息，它的 markdown nodes 要分几帧才撑开，
+   * 于是锚点（`anchor-a/b`）按**还没长完**的高度生效；随后正文长高几千像素，
+   * 视口就停在真实底部**上方**那么多像素处。
+   * ⇒ 错得多少，正文有多长 —— 正是"尤其大文本时"这个现象。
+   *
+   * ## 为什么是"复量"而不是"多等一会儿"
+   *
+   * 加 `setTimeout` 只是把"猜"换成"猜得更久"：真机上 `rich-text` 的排版时机不保证，
+   * 而流式回复还在持续改高度。**量一次差多少、补一次锚**，是能被验证的做法：
+   * 差得不多就什么都不做（绝大多数情况），差得多才补。
+   *
+   * ## 三条纪律
+   *
+   * ① **用户已经往上翻就立刻停手** —— 补锚会把他从正在读的位置拽走，那比错位更糟；
+   * ② **有次数上限**（`_settleLeft`）：它不是轮询，两次补不上就认账；
+   * ③ **只在"本来就该在底部"的那两条路上调用**（进会话的第一页、断链重连后强制回底），
+   *    否则每个 delta 都要一次 selector query —— 流式回复时那是每 100ms 一次。
+   */
+  _settleBottom: function () {
+    var self = this
+    /**
+     * ⚠️ 守卫必须写成 `!(x > 0)` 而不是 `x <= 0`（2026-10-09 深度 review）：
+     * `_settleLeft` 没有初值时是 `undefined`，`undefined <= 0` 是 **false**（不拦），
+     * 接着 `undefined - 1` 变成 `NaN`，而 `NaN <= 0` 还是 false ⇒ **递归永不停**。
+     * 探针实测：无初值时 94 次 query、92 次补锚仍在涨。
+     * ⇒ 一次比较同时把 `undefined` / `NaN` / 负数都拦掉。
+     */
+    if (!(this._settleLeft > 0)) return
+    this._settleLeft -= 1
+    var rect = null
+    var off = null
+    try {
+      var q = wx.createSelectorQuery()
+      // ⚠️ 两段要**同一个 query 上各 select 一次**：`scrollOffset` 与
+      // `boundingClientRect` 是两个字段，分两次 `createSelectorQuery()` 会量到两个时刻。
+      q.select('.scroll').boundingClientRect(function (r) {
+        rect = r
+      })
+      q.select('.scroll').scrollOffset(function (o) {
+        off = o
+      })
+      q.exec(function () {
+        // ① 用户在回看 / 页面已经不在底部 ⇒ 不许补锚（会把人拽走）
+        if (!self.scroll.following || self.data.atBottom === false) return
+        if (!rect || !rect.height || !off || typeof off.scrollHeight !== 'number') return
+        var gap = off.scrollHeight - (off.scrollTop + rect.height)
+        if (gap <= SETTLE_SLOP) return
+        // 差得明显 ⇒ 锚点确实按旧高度生效了，补一次再复量
+        self._scrollToBottom()
+        self._settleBottom()
+      })
+    } catch (e) {
+      // 量不到就当不需要补：这一段是修正，不许自己变成故障
+    }
   },
 
   /**
@@ -758,17 +1034,18 @@ Page({
         //
         // 此刻三个前置条件全满足：status 已是 'online'、_historyStarted 刚复位、
         // _historyBusy 刚复位。
-        // **复位之后必须自己再触发一次**（2026-10-06 取证）。
         //
-        // 开头那次 `_maybeLoadHistory()` 在这一刻还看到 `_historyStarted === true`，
-        // 直接 return 了——而它全页只有两个调用点（onShow 与这里），不重新触发
-        // 就**永远不会再读历史**。2026-10-05 那次"修复"只复位、不触发，整段是
-        // 彻底的空操作：断链期间主机上跑完的步骤、工具、回复一条都补不回来，
-        // 于是页面活着、顶栏亮着，**消息流从此静止**。
+        // ⚠️ 上面这段注释 2026-10-08 之前**在文件里出现了两遍**（逐字相同），
+        // 这里删掉了重复的那一份。留着两份的代价不是"多读几行"：下一轮改动
+        // 只会更新其中一份，而读代码的人（包括下一次的我）拿到的是两份**互相矛盾**
+        // 的历史说明，并且无从判断哪份是新的。
         //
-        // 此刻三个前置条件全满足：status 已是 'online'、_historyStarted 刚复位、
-        // _historyBusy 刚复位。
-        this._maybeLoadHistory()
+        // **先试只补差量**（B4，2026-10-08）：断线这一段里主机上跑过的步骤、
+        // 工具、回复，正常情况下**只有几十行**，而整页重读要把最新那一页
+        // （`HISTORY_LIMIT` 条，还可能连带整份会话日志的读盘）全部重传一遍。
+        // `_tryLoadDelta` 返回 false 时（对端没有能力位 / 没有游标 / 屏幕是空的）
+        // 才退回下面那条老路径 —— 那条路的正确性不变，它现在是**降级档**。
+        if (!this._tryLoadDelta()) this._maybeLoadHistory()
         // **重连后直接到底部**（2026-06 用户拍板：重连与重新进入都到底部，
         // 不记住"读到哪儿"）。
         //
@@ -791,7 +1068,7 @@ Page({
       return
     }
     if (evt.kind === 'error') {
-      wx.showToast({ title: String(evt.message || '').slice(0, 40), icon: 'none' })
+      toast(String(evt.message || ''))
       return
     }
     if (evt.kind !== 'payload') return
@@ -817,7 +1094,7 @@ Page({
     // 位置必须在下面那句通用会话过滤**之前**：那条会直接 return，
     // 放到它后面就永远走不到。
     if (p.t === 'ev.question_request' && p.sessionId && p.sessionId !== this.data.sessionId) {
-      wx.showToast({ title: '主机在另一条会话里提问', icon: 'none' })
+      toast('主机在另一条会话里提问')
       return
     }
     // 审批与提问同一性质："不回就等于出事"的帧（主机阻塞等决定，180 秒超时自动拒绝）。
@@ -825,7 +1102,7 @@ Page({
     // 但必须让人知道有这件事。原来审批跨会话是**彻底静默**（连提问那句 toast 都没有），
     // 主机白等 180 秒而手机毫无痕迹（PRODUCT.md G2）。
     if (p.t === 'ev.permission_request' && p.sessionId && p.sessionId !== this.data.sessionId) {
-      wx.showToast({ title: '主机在另一条会话里等审批', icon: 'none' })
+      toast('主机在另一条会话里等审批')
       return
     }
     if (p.sessionId && p.sessionId !== this.data.sessionId) return // 不是本会话
@@ -857,7 +1134,7 @@ Page({
     if (p.t === 'ev.retry') return this._onRetry(p)
     if (p.t === 'ev.compaction') return this._onCompaction(p)
     if (p.t === 'ev.result') {
-      if (!p.ok && p.message) wx.showToast({ title: String(p.message).slice(0, 40), icon: 'none' })
+      if (!p.ok && p.message) toast(String(p.message))
       return
     }
   },
@@ -898,12 +1175,20 @@ Page({
    * 混进这个函数会让"状态变了要重算顶栏"与"收到模型帧要更新"两件事互相覆盖。
    */
   _renderBar: function () {
+    // 演示态：顶栏说的是"这是演示"，而不是掉进下面那句 client 判据得到"未连接"——
+    // 后者会让人以为"连不上"，而演示模式**本来就不连**。
+    if (this._demo) {
+      this.setData({ barText: '演示', barTheme: 'default' })
+      return
+    }
     var c = this.client
     var online = typeof c.status === 'string' && c.status === 'online'
     var text
-    if (online) text = '已连接'
-    else if (typeof c.status === 'string' && c.status !== 'idle') text = c.statusText || '未连接'
-    else text = '未连接'
+    // 状态词从共享表取；只有"正在重连…"那种**带原因**的话才留在 client.js 里
+    // （它说的是"发生过什么 + 正在做什么"，不是一个状态词）。
+    if (online) text = copy.statusText('online')
+    else if (typeof c.status === 'string' && c.status !== 'idle') text = c.statusText || copy.statusText('notLinked')
+    else text = copy.statusText('notLinked')
     this.setData({
       barText: text,
       barTheme: connTheme(c.status),
@@ -1009,6 +1294,67 @@ Page({
 
   // ── 历史：打开会话时把主机上已有的内容读进来 ───────────────────────
   /**
+   * 断线重连后先试**只补差量**（V3-PLAN §7 B4 / 规范 §10.7）。
+   *
+   * ## 为什么不是"给 `_loadHistory` 加一个 since 参数"
+   *
+   * 两条路的**合并方向是相反的**，而它们长的样子一模一样：整页重读是往**前**拼
+   * （那一页可能比屏幕上的旧），差量是往**后**接（它按定义比屏幕上的新）。
+   * 塞进同一个函数就要在那个函数里再判一次方向，而判错的症状（补进来的那段
+   * 跑到会话最上面）不会报错、只是"看上去没补上"。
+   *
+   * 判断"该不该走这条路"的三件事**全部在 client 侧判**（`supportsResume` /
+   * `cursorOf`），页面不重复实现一遍 —— §10.7 S6「对端没有这一位时 MUST NOT 发
+   * `since`」这条约束只有一个判据点，判据也只有一条。
+   *
+   * @returns {boolean} true = 这条路接管了（页面别再整页重读）；false = 走老路径。
+   */
+  _tryLoadDelta: function () {
+    var self = this
+    var c = this.client
+    if (!this.data.sessionId) return false
+    // 屏幕上一条块都没有 ⇒ "补差量"没有意义：差量补的是"比屏幕上更新的"，
+    // 而屏幕上什么都没有时用户要的是最新一页（那正是 `_loadHistory(null)`）。
+    if (!this.data.blocks.length) return false
+    if (this._historyBusy) return false
+    if (!c.supportsResume()) return false
+    if (c.cursorOf(this.data.sessionId) === null) return false
+
+    this._historyBusy = true
+    c.resumeHistory(this.data.sessionId).then(function (out) {
+      self._historyBusy = false
+      if (!out || out.mode !== 'delta') {
+        // **不弹提示**：`mode !== 'delta'` 的四种原因里，只有"窗口越界"算是异常，
+        // 而规范给它的动作恰恰就是"改拉历史"（§10.7 S4/S5 明写它不可重试）。
+        // 在这里 toast 一句"补不回来了"，用户唯一能做的还是等我们整页重读 ——
+        // 那是一条只制造焦虑、不改变行为的提示。真相由整页重读的结果说话。
+        self._historyStarted = false
+        self._loadHistory(null)
+        return
+      }
+      if (!out.items.length) {
+        // 差量是空的 = 断线期间主机上没有新东西。这是**最常见的一种成功**，
+        // 而它必须什么都不做：多提交一次 `_commit` 会把视口重新对齐一次，
+        // 用户正在读的位置会被无端拖动。
+        return
+      }
+      var replayed = self._replayPage(out.items)
+      var merged = self.data.blocks.length
+        ? self._mergeByAnchors(replayed, self._replayAnchors || [], self.data.blocks, 'after')
+        : replayed
+      // 待办快照与"第一页"同一条守卫（`!self._todoLive`）：实时帧到过之后
+      // 历史一律不许盖它（后到者胜）。这里刻意**不**为差量另开一条规则 ——
+      // "这一页更新"与"实时那帧更新"谁更晚，我们无从判断（实时帧不带 seq）。
+      if (self._replayTodos && !self._todoLive) self._setTodos(self._replayTodos)
+      // `noScroll: false`：重连后要回底部。此刻 `following` 已被上面那一支的
+      // `scroll.onReconnect()` 置真，所以 `shouldFollowNewContent` 会放行。
+      // 重连补差量：**要复量**（刚补进来一大段新内容，最容易触发病根那条路）
+      self._commit(merged, { noScroll: false, settle: true })
+    })
+    return true
+  },
+
+  /**
    * 该不该现在去读第一页。
    *
    * 三个前置条件缺一不可，缺了就**等**而不是失败：还没配对、还没连上、
@@ -1060,7 +1406,7 @@ Page({
             self.setData({ historyState: 'error' })
           } else {
             self.setData({ historyLoadingMore: false })
-            wx.showToast({ title: '更早的内容没读到', icon: 'none' })
+            toast('更早的内容没读到')
           }
           return
         }
@@ -1101,7 +1447,7 @@ Page({
         // 读完即消费（policy 里做）：标记不清，下一页也会被当成重连拖到底——
         // 而那时用户正在读更早的历史。
         var forceBottom = self.scroll.consumePendingBottom(first)
-        self._commit(merged, { noScroll: !firstPage && !forceBottom })
+        self._commit(merged, { noScroll: !firstPage && !forceBottom, settle: first || forceBottom })
         // 待办快照：只应用**第一页**（最新一页）——更早页的快照是过期的，
         // 应用它等于把用户看到的清单往回拨。实时帧已经到过（_todoLive）就
         // 一律不应用：后到者胜，历史不许盖实时。
@@ -1121,7 +1467,7 @@ Page({
         } else {
           self.setData({ historyLoadingMore: false })
         }
-        wx.showToast({ title: '主机上的历史没读到', icon: 'none' })
+        toast('主机上的历史没读到')
       })
   },
 
@@ -1288,12 +1634,21 @@ Page({
    * 把一页历史生成的新块按锚点插进屏幕上现有的块流（见 `_replayPage`）。
    *
    * 三个分支：
-   *   · 一个锚点都没有 —— 这一页与屏幕上的内容没有交集，维持老行为（整页拼在最前面）。
-   *     往前翻的那条路（`_loadHistory(cursor)`）不经过这里，它按定义就是"更早"。
+   *   · 一个锚点都没有 —— 这一页与屏幕上的内容没有交集。往哪边拼**取决于这一页是
+   *     从哪边来的**，所以由 `fallback` 决定（见下）。
    *   · 有锚点 —— 按锚点把新块插到它前面，屏幕上的块保持原顺序。
-   *   · 尾部没有锚点的新块 —— 页里它们后面没有已渲染过的块，就是更新的内容，落在最后。
+   *
+   * ## `fallback`：`'before'`（默认）/ `'after'`（2026-10-08 加，B4）
+   *
+   * 「没有锚点」有两种完全相反的含义，而它们长的样子一模一样：
+   *   · **往前的页**（「加载更早」、首次读最新一页）：这一页比屏幕上的**旧** ⇒ 拼在前面；
+   *   · **往后的页**（断线后补差量）：这一页比屏幕上的**新** ⇒ 必须拼在后面。
+   *
+   * 默认 `'before'` 是为了保住既有那两条路逐字不变；差量那条路显式传 `'after'`。
+   * 写错方向的症状很具体：断线重连补进来的那一段会出现在**整段会话的最上面**，
+   * 用户往上翻才看得见 —— 而页面的约定是"最新在最底"。
    */
-  _mergeByAnchors: function (replayed, anchors, existing) {
+  _mergeByAnchors: function (replayed, anchors, existing, fallback) {
     var any = false
     for (var a = 0; a < anchors.length; a++) {
       if (anchors[a]) {
@@ -1301,7 +1656,7 @@ Page({
         break
       }
     }
-    if (!any) return replayed.concat(existing)
+    if (!any) return fallback === 'after' ? existing.concat(replayed) : replayed.concat(existing)
     var out = []
     var i = 0
     for (var e = 0; e < existing.length; e++) {
@@ -1309,6 +1664,7 @@ Page({
       while (i < replayed.length && anchors[i] === key) out.push(replayed[i++])
       out.push(existing[e])
     }
+    // 尾部没有锚点的新块 —— 页里它们后面没有已渲染过的块，落在最后。
     while (i < replayed.length) out.push(replayed[i++])
     return out
   },
@@ -1690,7 +2046,8 @@ Page({
     var attempt = typeof p.attempt === 'number' && p.attempt > 0 ? p.attempt : 1
     var max = typeof p.max === 'number' && p.max > 0 ? p.max : attempt
     var text = '正在重试 ' + attempt + '/' + max
-    if (p.reason) text += ' · ' + String(p.reason).slice(0, 40)
+    // ⚠️ 分隔符用逗号，不用中点（2026-08-09 用户：文案不要特殊符号）
+    if (p.reason) text += '，' + String(p.reason).slice(0, 40)
     this.setData({ notice: text })
   },
 
@@ -1706,7 +2063,7 @@ Page({
   _onCompaction: function (p) {
     if (p.state === 'started') this.setData({ notice: '正在压缩上下文' })
     else if (p.state === 'failed')
-      this.setData({ notice: '压缩没成功：' + String(p.error || '未知原因').slice(0, 60) })
+      this.setData({ notice: '压缩没成功' + String(p.error || '未知原因').slice(0, 60) })
     else this.setData({ notice: '' })
   },
 
@@ -1720,23 +2077,32 @@ Page({
    * 自己刚才点的那个按钮已经失效了。
    */
   _onPermission: function (p) {
+    var options =
+      p.options && p.options.length
+        ? p.options
+        : [
+            { id: 'approve', label: '允许' },
+            { id: 'reject', label: '拒绝' },
+          ]
     this.setData({
       pendingPermission: {
         requestId: p.requestId,
         action: p.action || '操作',
         resource: p.resource || '',
         reason: p.reason || '',
-        options:
-          p.options && p.options.length
-            ? p.options
-            : [
-                { id: 'approve', label: '允许' },
-                { id: 'reject', label: '拒绝' },
-              ],
+        options: options,
+        // 「始终允许」那行 scope 说明要不要渲染 —— 在这里派生，渲染层只管取
+        // （与步骤组的 decorateSteps 同一条纪律）。判据是**选项表里有没有
+        // approve-session**，不是文案里有没有某个词：老主机只发两颗按钮，
+        // 那时这行小字不该出现。文案本身写在 wxml 里（静态自检要能读它）。
+        sessionHint: options.some(function (o) {
+          return o.id === 'approve-session'
+        }),
         deadlineAt: p.expiresAt ? Date.parse(p.expiresAt) : 0,
         remainSec: 0,
       },
-      running: false,
+      // 补画时不碰 running（与提问那条同款注释）
+      ...(this._restored ? {} : { running: false }),
     })
     this._renderBar()
     if (wx.vibrateLong) wx.vibrateLong()
@@ -1786,6 +2152,28 @@ Page({
     tick()
   },
 
+  /**
+   * 以 client 记住的那张卡为**准**，把页面上对不上的旧卡撤掉。
+   *
+   * ⚠️ 只在 `onShow` 里调：进会话这一刻本来就要以主机/客户端的现状为准，
+   * 而页面自己那份 `data.pending*` 恰恰是**唯一可能过期**的一份（它跨 hide/show 活着）。
+   *
+   * @param {object|null} pending client 当前记着的那张（null = 客户端认为没有挂起的）
+   */
+  _alignPendingCards: function (pending) {
+    var id = pending && pending.requestId
+    var curPerm = this.data.pendingPermission
+    if (curPerm && curPerm.requestId !== id) {
+      this.setData({ pendingPermission: null })
+    }
+    var curQ = this.data.pendingQuestion
+    if (curQ && curQ.requestId !== id) {
+      this.setData({ pendingQuestion: null })
+    }
+    // 两张都没了却还挂着倒计时表：那张表是"到点不清卡片"的，停掉它省一次每秒唤醒
+    if (!this.data.pendingPermission && !this.data.pendingQuestion) this._stopCardTick()
+  },
+
   _stopCardTick: function () {
     if (this._cardTimer) {
       clearTimeout(this._cardTimer)
@@ -1817,7 +2205,8 @@ Page({
       running: false,
     })
     this._renderBar()
-    if (wx.vibrateLong) wx.vibrateLong()
+    // 补画（onShow 取回的那张）不震 —— 见 onShow 里那条注释
+    if (!this._restored && wx.vibrateLong) wx.vibrateLong()
     this._startCardTick()
   },
 
@@ -2123,7 +2512,7 @@ Page({
       kind: 'note',
       trimKey: 'trim',
       dropped: dropped,
-      text: '…已省略较早的 ' + dropped + ' 个片段（仅保留最近 ' + MAX_BLOCKS + ' 个）',
+      text: '已省略较早的 ' + dropped + ' 个片段，只保留最近 ' + MAX_BLOCKS + ' 个',
     })
     return out
   },
@@ -2176,6 +2565,40 @@ Page({
     })
   },
 
+  /**
+   * **渲染不出内容的块直接丢掉**（2026-08-08，用户截图里那些"空白的高盒子"）。
+   *
+   * 为什么会有这种块：`text` 块在 run 开始时就建好，若这一轮一个字都没吐
+   * （错误、被中断、或者只有工具调用没有正文），块就会**永远留在流里**，
+   * 界面上是一张有底色、有内边距、但没有字的卡片 —— 一条空白的高盒子。
+   *
+   * ⚠️ 判据不能写成"看起来是空的"，那要拿"有 md nodes 但 text 空"的情况误杀；
+   * 所以这里只丢**确定渲染不出东西**的：正文为空、且不在流式中、且没有 md 结果。
+   */
+  _dropEmptyBlocks: function (blocks) {
+    var out = []
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i]
+      if (b.kind === 'text') {
+        var hasText = typeof b.text === 'string' && b.text.length > 0
+        var hasMd = !!(this._mdNodes && this._mdNodes[b.key] && this._mdNodes[b.key].length)
+        if (!hasText && !hasMd && b.done) continue
+      }
+      if (b.kind === 'steps' && (!b.items || b.items.length === 0)) continue
+      out.push(b)
+    }
+    return out
+  },
+
+  /**
+   * @param {{noScroll?: boolean, settle?: boolean}} [opts]
+   *   `settle` = 这次提交之后**要复量一次落底**（见 `_settleBottom`）。
+   *   ⚠️ 它必须是**显式入参**，不能由 `_loadHistory` 猜"这次是不是该到底"：
+   *   深度 review 查出来 `if (first || forceBottom)` 里那个 `forceBottom`
+   *   **实际不可达**（`consumePendingBottom(first=true)` 必为 false，
+   *   而重连那一支在它之前就已经走掉了）—— 于是"断链重连补差量"那条路
+   *   一次都没复量过，而那恰恰是**最容易**触发病根的一条（刚补进来一大段新内容）。
+   */
   _commit: function (blocks, opts) {
     var self = this
     // 轮次号统一在这里重排：历史往前拼、实时往后接，两种方向都会让编号漂
@@ -2183,6 +2606,7 @@ Page({
     var trimmed = this._trim(this._decorate(renumbered.blocks))
     // 正文总量在这里封顶（块数上限管不到字节，见 MAX_TOTAL_TEXT_CHARS）
     trimmed = this._capText(trimmed)
+    trimmed = this._dropEmptyBlocks(trimmed)
     this._reindex(trimmed)
     // markdown 的 nodes 收进**顶层** map：wxml 要按 `item.key` 取，不能直接
     // 绑块上的字段（`rich-text` 那样会渲染成 0 高度空块，见 `_withMd` 的说明）。
@@ -2212,16 +2636,114 @@ Page({
     }
     // 缓存只留还在块流里的（被裁掉的块不许留孤儿 nodes）
     this._mdNodes = bodies
+    // 用户不在底部时新到的条数（角标，2026-10-08 推翻重排新增）。
+    //
+    // 两条判据：
+    // ① 跟着底就不数——他正看着呢，角标是多余的；
+    // ② `noScroll` 的那一路不数——那是「加载更早」，块变多是因为**往前插**，
+    //    不是"新到"。不区分的话，往上翻一次就会凭空多出几十条未读。
+    var added = trimmed.length - (typeof this._prevCount === 'number' ? this._prevCount : 0)
+    this._prevCount = trimmed.length
+    if (added > 0 && !this.data.atBottom && !(opts && opts.noScroll)) {
+      this.setData({ newCount: this.data.newCount + added })
+    }
     this.setData({ blocks: payload, turn: renumbered.turn, mdBodies: bodies }, function () {
       // 只在用户还贴着底部时跟随；他往上翻过就让他安静地读。
       // 「加载更早」那一路显式静音：往前插内容时跟底会把他从刚读到的位置甩走。
       if (self.scroll.shouldFollowNewContent(opts)) self._scrollToBottom()
+      /**
+       * ⚠️ 复量必须**从 setData 的回调里发起**（2026-10-09 深度 review 的 P1-2）。
+       * 紧跟在 `_commit(...)` 之后调的话，真机上 `selectorQuery.exec` 的回调
+       * 与这个回调**谁先落地没有保证** —— 而它要量的正是"刚才那次锚点翻转之后"的位置。
+       * 量在翻转之前就等于量了旧布局，差值落在容差以内直接 return，
+       * 它要修的那个 bug 原样留着，而且**没有任何信号**。
+       */
+      if (opts && opts.settle) {
+        self._settleLeft = 2
+        self._settleBottom()
+      }
+      self._refreshRunState()
     })
   },
 
   // ── 出站 ──────────────────────────────────────────────────────────
+  /**
+   * 输入：写进 data，并**节流**存草稿（C4）。
+   *
+   * ## 为什么是节流而不是每敲一个字就写（2026-10-09 深度 review 的 P2-9，当天刻意留下）
+   *
+   * `saveDraft` 是 `getStorageSync` 全量读 → 改 → `setStorageSync` 全量写，
+   * 写的还是**所有会话草稿**那个对象。一条 2000 字的指令 = 2000 次**同步**存储往返，
+   * 每次还要序列化一个随草稿增长的对象 —— 真机上那是主线程上的活，
+   * 表现是"打字越快越卡"，而它不报任何错。
+   *
+   * ## 节流之后为什么不会丢字（三道兜底）
+   *
+   * ① `onInputBlur`：失焦立刻落盘（切后台/锁屏/来电话这条路上最后一个可靠信号）；
+   * ② `onHide`：页面被切走时把待写的那次**立刻**补上（`onHide` 不一定派发 blur）；
+   * ③ `onSend` / 清草稿那两处本来就是"立刻写"，不受节流影响。
+   *
+   * ⚠️ 节流窗口取 **400ms**：比一次连续输入的间隔长（人打字 ~150–250ms/字），
+   * 所以快速连打时只在停顿处写一次；而单字慢打时每个字都能落盘。
+   * ⚠️ 用 `setTimeout` 而不是"按时间戳判断要不要写"：后者在**连续输入**时
+   * 会永远不写（每次进来都还差一点点），那比写得多更糟。
+   */
   onInput: function (e) {
-    this.setData({ inputText: e.detail.value })
+    var text = e.detail.value
+    this.setData({ inputText: text })
+    var self = this
+    if (!this.data.sessionId) return
+    if (this._draftTimer) clearTimeout(this._draftTimer)
+    this._draftTimer = setTimeout(function () {
+      self._draftTimer = null
+      if (self.data.sessionId) store.saveDraft(self.data.sessionId, self.data.inputText || '')
+    }, 400)
+  },
+
+  /** 把节流里那次待写的草稿**立刻**落盘（页面被切走时用；返回是否还有待写）。 */
+  _flushDraft: function () {
+    if (!this._draftTimer) return
+    clearTimeout(this._draftTimer)
+    this._draftTimer = null
+    if (this.data.sessionId) store.saveDraft(this.data.sessionId, this.data.inputText || '')
+  },
+
+  /**
+   * 失焦：把草稿再落一次盘。
+   *
+   * ⚠️ 为什么 `onInput` 之外还要这一道：`onInput` 每敲一个字写一次本地存储，
+   * 而小程序在**页面被切走**时不一定派发最后一次 input（切后台、锁屏、来电话）。
+   * 失焦是这条路上**最后**一个可靠信号。
+   */
+  onInputBlur: function () {
+    this.setData({ inputFocus: false })
+    this._flushDraft()
+  },
+
+  /**
+   * 进会话时取回草稿。
+   *
+   * ⚠️ 只在 `inputText` 还是空的时候取：用户已经重新打了字，就不许被旧草稿覆盖
+   * （那是他刚刚做的决定，胜过盘上那份）。
+   */
+  _restoreDraft: function (sessionId) {
+    if (!sessionId) {
+      if (this.data.draftText !== '') this.setData({ draftText: '' })
+      return
+    }
+    var mine = this.data.inputText || ''
+    if (mine) {
+      store.saveDraft(sessionId, mine)
+      this.setData({ draftText: '' })
+      return
+    }
+    var restored = store.loadDraft(sessionId)
+    var patch = { draftText: '' }
+    if (restored) {
+      patch.inputText = restored
+      patch.draftText = ''
+    }
+    this.setData(patch)
   },
 
   onSend: function () {
@@ -2231,11 +2753,18 @@ Page({
     var pics = images.filter(function (a) { return a.kind !== 'file' })
     if (!text && !images.length) return
     if (!this.data.sessionId) return
+    // 演示态：这道闸在**所有其它检查之前**——演示里没有主机可发，
+    // 而下面那些检查（帧预算、执行中、附件上限）都是"真发送"的规则，
+    // 让它们先跑会给出与演示无关的提示（比如"正在跑，先中断再发"）。
+    if (this._demo) {
+      toast('演示模式，配对后才能发指令', { duration: 2200 })
+      return
+    }
     // 执行中不许提交（2026-10-05 用户：取消排队）。
     // 这条在 wxml 上已经做了一层（发送键在跑时变成中断键），这里是兜底：
     // 键盘的 send 键走的是 bindconfirm，绕不过那颗按钮，光靠按钮拦不住。
     if (this.data.running) {
-      wx.showToast({ title: '正在跑，先中断再发', icon: 'none' })
+      toast('正在跑，先中断再发')
       return
     }
     // 发送前的**最后一道**帧预算闸（2026-10-06）：附件那两道只算附件，正文长度没人管。
@@ -2244,16 +2773,17 @@ Page({
     // **必须拦在清空输入框之前**：拦完再清，用户就要重打一遍。
     var wire = estimateWireFrameBytes(text, images)
     if (wire > WIRE_FRAME_BUDGET - WIRE_FRAME_HEADROOM) {
-      wx.showToast({
-        title:
-          '这条太大发不出去（' +
-          Math.round(wire / 1024) +
-          'KB，超中继上限）：先把正文或附件减一些',
-        icon: 'none',
-      })
+      // ⚠️ 原来这句把字节数夹在括号里（`这条太大发不出去（88KB，超中继上限）：…`）——
+      //   用户 2026-08-09 明确要求：**不要括号、不要特殊符号**。
+      //   数字对用户没用（他不知道 88KB 是多少），要的是"怎么办"，
+      //   所以只说结论与动作；字节数留在 status.json 的诊断里。
+      toast('这条太长发不出去，请减少正文或附件')
       return
     }
     this.setData({ inputText: '', attachments: [], attachCount: 0 })
+    // 草稿到此为止：发出去的字还在块流里，再存一份只是让"草稿"提示说谎。
+    // ⚠️ 只在真的发出去之后清——上面那几道闸（没内容 / 没会话 / 太大）返回时草稿必须留着。
+    if (this.data.sessionId) store.saveDraft(this.data.sessionId, '')
     this._sendNow(text, images, files, pics)
   },
 
@@ -2297,14 +2827,18 @@ Page({
    * 没发出去就 toast 一句原因——用户看到的是一次失败，而不是一条撤不掉的幽灵。
    */
   _dispatch: function (text, images, files) {
+    var self = this
     this.client
       .sendPromptReceipt(this.data.sessionId, text, images, files)
       .then(function (r) {
         if (r.ok) return
-        wx.showToast({ title: String(r.message || '这条没发出去').slice(0, 40), icon: 'none' })
+        // ⚠️ toast 只是"顺带"说一声；真正防误解的是**会话里那一行标出来**
+        //   （2026-08-09 用户："没有发送消息提示没发出去，会造成误解"）——
+        //   那条回显是发出去**之前**就画进流里的，不标出来它和成功的一模一样。
+        self._markSendFailed(text, String(r.message || ''))
       })
       .catch(function () {
-        wx.showToast({ title: '这条没发出去', icon: 'none' })
+        self._markSendFailed(text, '')
       })
   },
 
@@ -2342,6 +2876,32 @@ Page({
    * @param {string} what 用户视角的这件事（"选文件"/"选图片"/"打开那个菜单"）
    * @returns {boolean} 有这个能力吗（false 时已经提示过了，直接返回）
    */
+  /**
+   * 把**最后一条同文的用户回显**标成"没发出去"。
+   *
+   * ⚠️ 为什么必须标在会话里而不只 toast（2026-08-09 用户报）：
+   *   回显是在发出去**之前**就画进流里的（乐观渲染，重发时靠它原地更新）。
+   *   没发出去时用户看到的是一条和成功的一模一样的消息，而 toast 又短、
+   *   会被下一条提示顶掉 —— "我明明发出去了"的误解就是这么来的。
+   *   ⇒ 那一行必须自己说出"没发出去"，且**不删**：删了用户就找不到自己刚打的那段话。
+   *
+   * 按文案匹配而不是把 key 传进来：`_dispatch` 是异步的，期间用户可能又发了一条；
+   * 带 key 要多传一层状态，而"最后一条同文"正好就是刚发的那条。
+   */
+  _markSendFailed: function (text, reason) {
+    var blocks = this.data.blocks
+    for (var i = blocks.length - 1; i >= 0; i--) {
+      var b = blocks[i]
+      if (b.kind !== 'user' || b.failed) continue
+      if (text && String(b.text || '') !== String(text)) continue
+      var next = blocks.slice()
+      next[i] = Object.assign({}, b, { failed: true, failedReason: String(reason || '') })
+      this._commit(next)
+      return true
+    }
+    return false
+  },
+
   _requireApi: function (apiName, what) {
     var p = env.probe()
     if (p && p[apiName]) return true
@@ -2352,9 +2912,9 @@ Page({
         apiName +
         '（' +
         (p ? p.global : '?') +
-        '）。\n' +
+        '。\n' +
         '请在微信开发者工具里运行，或把自己的 AppID 用真机调试方式打开。\n' +
-        '（可点下面的「复制环境自检」把这行诊断发回来，里面写着缺的是哪个能力。）',
+        '可点下面的复制环境自检把这行诊断发回来，里面写着缺的是哪个能力',
       showCancel: false,
     })
     return false
@@ -2375,7 +2935,7 @@ Page({
     var self = this
     var room = MAX_ATTACH - this.data.attachments.length
     if (room <= 0) {
-      wx.showToast({ title: '一条消息最多带 ' + MAX_ATTACH + ' 个附件', icon: 'none' })
+      toast('一条消息最多带 ' + MAX_ATTACH + ' 个附件')
       return
     }
     // 守卫：`wx.showActionSheet` 不在极老的容器里，而抛在回调里等于"点了没反应"
@@ -2393,9 +2953,51 @@ Page({
   /** 相册选图。走 压缩 -> 缩到定长边 -> 读成 base64 那条老链。 */
   _pickImages: function () {
     var self = this
-    var room = MAX_ATTACH - this.data.attachments.length
+    /**
+     * 图片条数上限：**读主机报的那个数**，不再写死 4。
+     *
+     * ⚠️ 协议头注写得很清楚（`payloads.ts` 的 limits）："手机按自己写死的 4 去允许，
+     * 而主机这一代只收 2 ⇒ 选好的第 3 张发出去没了，没有任何报错"。
+     * 而 `imageAttachmentLimit()` 之前只有 `rejectsImages()` 读它的**数字**，
+     * 数字拿回来没人用 —— 等于白读一趟（2026-10-09 深度 review 的 P2-6）。
+     *
+     * `null`（还没收到 `ev.host_info`）⇒ 退回协议上界 `MAX_ATTACH`：
+     * "不知道"不许当成 0（那会让老主机上图片功能整个消失，那是一次功能回退）。
+     */
+    var imgLimit = this.client.imageAttachmentLimit ? this.client.imageAttachmentLimit() : null
+    if (imgLimit === null) imgLimit = MAX_ATTACH
+    var room = imgLimit - this.data.attachments.length
     if (room <= 0) {
-      wx.showToast({ title: '一条消息最多带 ' + MAX_ATTACH + ' 个附件', icon: 'none' })
+      toast(imgLimit === 0 ? '这台主机不收图片附件' : '一条消息最多带 ' + imgLimit + ' 张图片')
+      return
+    }
+    /**
+     * 主机**明确**说了它不收图片时，在这里就停住（2026-10-09）。
+     *
+     * ## 为什么拦在这一层，而不是让主机在发送时拒绝
+     *
+     * 用户报的现象是"web 那台主机发图不行"，而旧流程要他**选完图、压缩完、
+     * 传完整个附件、按下发送**才被拒——最坏的时机，而且看不出是谁的锅。
+     * 主机现在把这件事提前报成 `ev.host_info.limits.maxImageAttachments = 0`
+     * （取证见 `packages/plugin/src/core/capabilities.ts`），这一层就是消费它的地方。
+     *
+     * ⚠️ **只在"明确是 0"时拦**（`rejectsImages()`），"还不知道"照常放行：
+     * 老主机从不发 `ev.host_info`，按 0 处理等于把它的图片功能整个关掉。
+     * 理由与对称的那条反向取舍写在 `core/client.js` 的 `imageAttachmentLimit()`。
+     */
+    if (this.client && this.client.rejectsImages && this.client.rejectsImages()) {
+      // ⚠️ 措辞守 `e2e/mp-copy-discipline` 那条闸：用户 2026-08-09 明令
+      //   「不要特殊符号和括号」，所以这里既不用书名号也不用圆括号
+      //   （第一版写成「文件」，当场被那条闸打红——它守的正是这个）。
+      // ⚠️ **别指一条走不通的路**：文件那一档是 `maxFileAttachments`，
+      // 主机没配落盘目录时它是 0（`runtime.ts` 的 `uploadDir ? … : 0`）⇒
+      // 那种主机上「改用文件发」同样是死路，说了比不说更让人白折腾一趟。
+      var fileLimit = this.client.fileAttachmentLimit ? this.client.fileAttachmentLimit() : null
+      toast(
+        fileLimit === 0
+          ? '这台主机既不收图片附件也不收文件附件，请在电脑上发'
+          : '这台主机不支持图片附件，可以改用文件发',
+      )
       return
     }
     // 守卫：`chooseMedia` 是基础库 2.10.0 才有的 API，比这一代其它任何一个都新
@@ -2463,7 +3065,7 @@ Page({
       data: text,
       success: function () {
         // 中性色，不用成功色：这是"做完了"，不是需要用户注意的事
-        wx.showToast({ title: '已复制', icon: 'none' })
+        toast('已复制')
       },
     })
   },
@@ -2472,7 +3074,7 @@ Page({
     var self = this
     var room = MAX_ATTACH - this.data.attachments.length
     if (room <= 0) {
-      wx.showToast({ title: '一条消息最多带 ' + MAX_ATTACH + ' 个附件', icon: 'none' })
+      toast('一条消息最多带 ' + MAX_ATTACH + ' 个附件')
       return
     }
     // 守卫（2026-10-07 审计）：老基础库上没有 `chooseMessageFile`，
@@ -2534,7 +3136,7 @@ Page({
       var f = files[i++]
       var filePath = f.tempFilePath || f.path
       if (!filePath) {
-        wx.showToast({ title: '这个文件读不出来 换一个试试', icon: 'none' })
+        toast('这个文件读不出来 换一个试试')
         next()
         return
       }
@@ -2560,7 +3162,7 @@ Page({
   _acceptFile: function (filePath, meta, base64, out, done) {
     var self = this
     if (!base64) {
-      wx.showToast({ title: '这个文件读不出来 换一个试试', icon: 'none' })
+      toast('这个文件读不出来 换一个试试')
       done()
       return
     }
@@ -2573,28 +3175,20 @@ Page({
       already += Math.floor((out[m].data.length * 3) / 4)
     }
     if (bytes > MAX_ATTACH_BYTES) {
-      wx.showToast({
-        title:
-          '这个文件有 ' +
-          Math.round(bytes / 1024) +
-          'KB 超过单附件上限 ' +
-          Math.round(MAX_ATTACH_BYTES / 1024) +
-          'KB',
-        icon: 'none',
-      })
+      toast('这个文件有 ' +
+        Math.round(bytes / 1024) +
+        'KB 超过单附件上限 ' +
+        Math.round(MAX_ATTACH_BYTES / 1024) +
+        'KB')
       done()
       return
     }
     if (already + bytes > MAX_ATTACH_TOTAL_BYTES) {
-      wx.showToast({
-        title:
-          '一条消息最多 ' +
-          Math.round(MAX_ATTACH_TOTAL_BYTES / 1024) +
-          'KB 附件 已经带了 ' +
-          Math.round(already / 1024) +
-          'KB',
-        icon: 'none',
-      })
+      toast('一条消息最多 ' +
+        Math.round(MAX_ATTACH_TOTAL_BYTES / 1024) +
+        'KB 附件 已经带了 ' +
+        Math.round(already / 1024) +
+        'KB')
       done()
       return
     }
@@ -2741,7 +3335,7 @@ Page({
     if (!self) self = this
     var isFile = meta && meta.kind === 'file'
     var giveUp = function () {
-      wx.showToast({ title: isFile ? '换一个试试' : '这张图读不出来', icon: 'none' })
+      toast(isFile ? '换一个试试' : '这张图读不出来')
       done()
     }
     var triedDownload = false
@@ -2802,23 +3396,16 @@ Page({
       already += Math.floor((out[m].data.length * 3) / 4)
     }
     if (bytes > MAX_IMAGE_BYTES) {
-      wx.showToast({
-        title: '这张图压完还有 ' + Math.round(bytes / 1024) + 'KB 太大 换一张或截一下',
-        icon: 'none',
-      })
+      toast('这张图压完还有 ' + Math.round(bytes / 1024) + 'KB 太大 换一张或截一下')
       done()
       return
     }
     if (already + bytes > MAX_IMAGE_TOTAL_BYTES) {
-      wx.showToast({
-        title:
-          '一条消息最多 ' +
-          Math.round(MAX_IMAGE_TOTAL_BYTES / 1024) +
-          'KB 图片 已经带了 ' +
-          Math.round(already / 1024) +
-          'KB',
-        icon: 'none',
-      })
+      toast('一条消息最多 ' +
+        Math.round(MAX_IMAGE_TOTAL_BYTES / 1024) +
+        'KB 图片 已经带了 ' +
+        Math.round(already / 1024) +
+        'KB')
       done()
       return
     }
@@ -2856,13 +3443,20 @@ Page({
      * 页面上那个 `evt.kind === 'error'` 的分支会把它弹出来。
      */
     if (this.client.interrupt(this.data.sessionId) === false) return
-    wx.showToast({ title: '已发送中断', icon: 'none' })
+    toast('已发送中断')
   },
 
   onPermissionTap: function (e) {
     var decision = e.currentTarget.dataset.decision
     var perm = this.data.pendingPermission
     if (!perm) return
+    // 演示态：说明这是示例卡片，**不发任何帧**。
+    // 不写这一支的话，点击会掉进 `resolvePermission` 那条 `isPaired()` 检查、
+    // 返回 false 后静默不动 —— 卡片看着能点却没反应，比一句说明糟得多。
+    if (this._demo) {
+      toast('演示模式，配对后才能处理', { duration: 2200 })
+      return
+    }
     /**
      * **先把帧发出去、再清卡**（2026-10-07 补，§5-6）。
      *
@@ -2873,6 +3467,13 @@ Page({
      * `sendCmd` 那条 error 说明原因，用户再点一次就行。
      */
     if (this.client.resolvePermission(this.data.sessionId, perm.requestId, decision) === false) return
+    /**
+     * 手机自己答掉的那张，主机**刻意不发** `ev.permission_resolved`（见
+     * `client.js` 的 `forgetPendingCard` 注释）⇒ 这里必须自己清一次。
+     * 不清的后果：退到列表再进同一会话，那张**已经结算完**的卡会重新画出来
+     * （带一次长震、并把顶栏的"运行中"按成"空闲"），再点就被主机回"已经不在挂起状态"。
+     */
+    if (this.client.forgetPendingCard) this.client.forgetPendingCard(this.data.sessionId, perm.requestId)
     this.setData({ pendingPermission: null, running: decision !== 'reject' })
     this._renderBar()
     // **这表两张卡共用**：提问卡还挂着就继续走秒（它在 data 里没被动过）。
@@ -2916,13 +3517,15 @@ Page({
       answers.push({ questionId: qq.id, selected: selected, freeText: q.freeText || undefined })
     }
     if (missing) {
-      wx.showToast({ title: '请先选择一项', icon: 'none' })
+      toast('请先选择一项')
       return
     }
     // **先发、再清卡**（与 onPermissionTap 同一条，2026-10-07，§5-6）：
     // 发不出去时卡留着，用户可以再点一次；清掉就再也补不回来了，
     // 而主机那条 300 秒的提问还挂着等答案。
     if (this.client.answer(this.data.sessionId, q.requestId, answers) === false) return
+    // 与审批那条同款：手机上自己答掉的，主机刻意不发 resolved ⇒ client 侧自己清。
+    if (this.client.forgetPendingCard) this.client.forgetPendingCard(this.data.sessionId, q.requestId)
     this.setData({ pendingQuestion: null, running: true })
     this._renderBar()
   },

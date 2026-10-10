@@ -1,0 +1,65 @@
+/* drc-skeleton —— 加载态骨架（阶段 C2）。
+ *
+ * ⚠️ 底色用 --drc-surface-sunken 而不是"更浅的灰"：骨架是"内容还没到"的意思，
+ *    它应该看起来像**凹进去的一块**（等着被填），而不是一块新的卡片。
+ *    深色下这一点尤其重要 —— 更浅的灰在深色里是"浮起来的一块白"。
+ */
+
+.drc-sk {
+  padding: var(--drc-space-3, 24rpx);
+}
+
+.drc-sk-row {
+  display: flex;
+  align-items: center;
+  padding: var(--drc-space-2, 16rpx) 0;
+}
+
+.drc-sk-avatar {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: var(--drc-radius-pill, 999rpx);
+  margin-right: var(--drc-space-2, 16rpx);
+  flex: none;
+  background: var(--drc-surface-sunken, #f3f3f3);
+  animation: drc-sk-shimmer 1200ms ease-in-out infinite;
+}
+
+.drc-sk-lines {
+  flex: 1;
+}
+
+.drc-sk-line {
+  height: 28rpx;
+  border-radius: var(--drc-radius-sm, 8rpx);
+  background: var(--drc-surface-sunken, #f3f3f3);
+  animation: drc-sk-shimmer 1200ms ease-in-out infinite;
+}
+
+.drc-sk-title {
+  margin-bottom: var(--drc-space-1, 8rpx);
+  max-width: 70%;
+}
+
+.drc-sk-sub {
+  height: 20rpx;
+  max-width: 92%;
+}
+
+.drc-sk-sub.short {
+  max-width: 60%;
+}
+
+/* ⚠️ 只动 opacity 不动 background-position：后者在小程序的 wxss 里
+   对 background 的渐变支持不一致（有的机型整块不显示）。 */
+@keyframes drc-sk-shimmer {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 1;
+  }
+}

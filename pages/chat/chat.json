@@ -2,6 +2,7 @@
   "navigationBarTitleText": "对话",
   "disableScroll": true,
   "usingComponents": {
-    "t-button": "/miniprogram_npm/tdesign-miniprogram/button/button"
+    "t-button": "/miniprogram_npm/tdesign-miniprogram/button/button",
+    "drc-skeleton": "/components/drc-skeleton/drc-skeleton"
   }
 }

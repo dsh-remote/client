@@ -43,40 +43,56 @@ var marked = require('./vendor/marked.js')
  * `--td-font-gray-1` 是带 alpha 的黑/白），而这里必须是能直接写进 inline style 的
  * 实色，所以只能取"压在该主题的容器底上算出来的那个色"。它们与 token
  * **同一档语义、数值不逐字相等**（例：浅色正文 #181818，而 token 压白底约 #1a1a1a）。
- * 改配色时两处都要看；对比度由 `scripts/check-mp-contrast.mjs` 兜（它认得这里的色值）：
+ * ⚠️ **两边都必须跟着各自的正文卡底走**，而正文卡是 `--td-bg-color-container`（`app.wxss` 的 `.reply`）：
+ *   · 浅色 = `#ffffff`
+ *   · 深色 = `#141822`（2026-10-09 深色改版；**这里原来写的是 #2c2c2c，那已经是旧值**）
+ *
+ * 对比度由 `scripts/check-markdown.mjs` 逐个组合算（`check-mp-contrast` 只扫 wxss，
+ * 扫不到这些写进 inline style 的色值 —— 见那条判据的注释）：
  *
  *   light（压在白卡片 #ffffff 上）
  *     text     正文近黑                      ← --td-text-color-primary（rgba(0,0,0,.9) 压白）
  *     muted    次要/占位灰                   ← --td-text-color-placeholder（light.wxss 覆盖为 rgba(0,0,0,.56)）
- *     rule     分隔线                        ← 边框灰那一档
- *     codeBg   代码块底（比正文卡深一档）      ← --td-bg-color-page 灰
- *     quoteBg  引用块/表头底（比正文卡浅一档，当"内嵌"用）
- *     link     链接                          ← --td-brand-color（= --td-brand-color-7 #0052d9，逐字相同）
+ *     rule     分隔线                        ← --td-component-border（2026-10-10 换成冷灰 #d3dae7）
+ *     codeBg   代码块底（比正文卡深一档）      ← --td-bg-color-secondarycontainer（#e5ebf5）
+ *     quoteBg  引用块/表头底（比 codeBg 浅、比卡片深一档，当"内嵌"用）
+ *     link     链接                          ← --td-brand-color（2026-10-10 换成靛蓝 #2f4bd6）
  *
- *   dark（压在正文卡 #2c2c2c = --td-gray-color-12 上）
+ *   dark（压在正文卡 #141822 上）
  *     text     正文必须够亮（本项目踩过"字全黑"）← --td-text-color-primary（rgba(255,255,255,.9)）
  *     muted    次要/占位灰                   ← --td-text-color-placeholder（dark.wxss 覆盖为 rgba(255,255,255,.5)）
  *     rule     分隔线（比卡片亮一档，否则看不见）
  *     codeBg   代码块底 —— 比卡片**亮一档**（曾经与卡片同色 → 代码块整块消失，2026-10-04 修）
  *     quoteBg  引用块/表头底 —— 比卡片暗一档（同一次一起定的）
- *     link     链接（比浅色那档亮，压深底才读得清）
+ *     link     链接（比浅色那档亮，压深底才读得清）← --td-brand-color-on-tint（#8aa4ff）
+ */
+/**
+ * ⚠️ 2026-10-10 这次改动的三条，都是**被算出来的**而不是看着挑的：
+ *
+ * ① `light.muted` **#7a7a7a → #6f6f6f**：这是一个**原来就存在的缺陷**，只是没有判据
+ *    在管它 —— `#7a7a7a` 压白卡只有 **4.29:1**、压 quoteBg 只有 **3.97:1**，都不达 4.5。
+ *    它正是 `light.wxss` 把 placeholder 提到 `rgba(0,0,0,.56)` 要修的那一档灰
+ *    （会话时间戳、路径、note 用的就是它），而 markdown 这份**手挑的**色板当时漏掉了。
+ *    `check-markdown.mjs` 只验了 `text` 一个键，所以一直绿。
+ * ② 深浅两套的 `rule`/`codeBg`/`quoteBg` 跟着各自的新面阶走（页面/卡片/下沉都换了）。
+ * ③ `light.link` 跟着品牌换成靛蓝；`dark.link` 跟着深色的 on-tint 走。
  */
 var PALETTE = {
   light: {
     text: '#181818',
-    muted: '#7a7a7a',
-    rule: '#e5e5e5',
-    codeBg: '#f3f3f3',
-    quoteBg: '#fafafa',
-    link: '#0052d9'
+    muted: '#6f6f6f',
+    rule: '#d3dae7',
+    codeBg: '#e5ebf5',
+    quoteBg: '#f4f6fa',
+    link: '#2f4bd6'
   },
   dark: {
     text: '#e8e8e8',
     muted: '#9a9a9a',
-    rule: '#3a3a3a',
-    codeBg: '#333333',
-    quoteBg: '#262626',
-    link: '#5a9bff'
+    rule: '#313a4f',
+    codeBg: '#1c2130',
+    quoteBg: '#0e1119',
+    link: '#8aa4ff'
   }
 }
 

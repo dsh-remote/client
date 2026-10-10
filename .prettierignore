@@ -1,0 +1,9 @@
+node_modules/
+dist/
+pnpm-lock.yaml
+*.log
+.tmp/
+.dsh/
+# TDesign 的 vendored 产物：生成的，不手工格式化
+miniprogram_npm/
+core/vendor/

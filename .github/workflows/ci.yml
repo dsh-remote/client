@@ -36,5 +36,17 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
+      # ⚠️ 这里**没有** `pnpm format:check`，与其他三个仓不同（2026-10-10 拆仓时发现）。
+      #
+      # 原来的写法是从"四包统一的 CI"模板抄过来的，但本包根本不具备这个能力：
+      #   · `package.json` 里**没有** `format:check` 脚本，也**没有** prettier 依赖
+      #     ⇒ 这一行在 CI 上是 `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL: Command "format:check" not found`；
+      #   · 就算把脚本补上，`.wxml` **没有 prettier parser**
+      #     （`No parser could be inferred for file ".../sessions.wxml"`），
+      #     另有 `.wxss` / `project.config.json` 等 11 个文件不合格式。
+      #
+      # ⇒ 要让这一行成立，得先补依赖 + 给 wxml 指定 parser（或忽略）+ 格式化那 11 个文件。
+      #   那是一次**独立的、会动到大量小程序的**改动，不该混在拆仓里做。
+      #   本包在小程序侧的格式保障由 `pnpm run check` 的八道闸负责（结构自检 / markdown /
+      #   设计 token / 组件层 / 滚动策略 / 主题生成 / 对比度 / 共享文案表）。
       - run: pnpm run check

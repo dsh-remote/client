@@ -19,8 +19,10 @@
   <block wx:if="{{!paired}}">
     <view class="hero">
       <view class="hero-mark">DSH</view>
-      <view class="hero-title">远程控制</view>
-      <view class="hero-desc">在手机上驱动主机上的 DeepSeek Harness。</view>
+      <!-- 标题用**全名**（与导航栏标题、CHANGELOG 里的产品名逐字一致）：
+           2026-10-08 用户："首页的『助手』这个描述太短了，改成 DSH 助手"。 -->
+      <view class="hero-title">DSH 助手</view>
+      <view class="hero-desc">在手机上查看和跟进你在电脑上跑的 AI 任务：进度、待办、要你拍板的事，都会同步到这里。</view>
 
       <!-- 主路径只有一条，且就地完成：扫完即连，不跳页 -->
       <view class="btn-gap">
@@ -33,6 +35,13 @@
         bindtap="onScan">{{busy ? '正在连接…' : '扫描主机二维码'}}</t-button>
       </view>
       <view wx:if="{{!scanReady}}" class="hero-note muted">当前环境没有扫码能力，请用下面的手动输入。</view>
+
+      <!-- 演示入口：审核员没有主机与二维码，首次用户也想先看看是什么。
+           它**不是主路径**（次级文字链），但必须在首屏看得见——
+           藏起来的演示等于没有演示。 -->
+      <view class="hero-demo" hover-class="pressed" hover-stay-time="80" bindtap="onEnterDemo">
+        <text>没有主机？先看看界面 ›</text>
+      </view>
 
       <!-- 手动输入：默认收起。没摄像头（模拟器）或二维码扫不出来时才需要它，
            平时占版面却没人用 —— 折叠起来，但**入口必须一直在**，
@@ -99,6 +108,14 @@
   </block>
 
   <block wx:if="{{paired}}">
+    <!-- 演示横幅：常驻、不消失。
+         为什么不是 toast：toast 会消失，而"这些是不是真数据"必须在**每一帧**
+         都看得见——演示数据被当成真会话，是这个功能唯一不可接受的失败形态。 -->
+    <view wx:if="{{demo}}" class="demo-strip">
+      <view class="demo-dot"></view>
+      <text class="demo-text">{{demoBanner}}</text>
+    </view>
+
     <!-- 主机卡：只回答"现在到底通不通"。防休眠开关已下线：
          它的可用性完全取决于主机那侧有没有 caffeinate 之类的后端，
          在多数机器上是个永远点不动的开关 —— 不如不给。 -->
@@ -108,14 +125,15 @@
         <view class="host-name ellipsis">{{hostLabel || '主机'}}</view>
         <view class="pill {{statusTheme}}">{{statusLabel}}</view>
       </view>
-      <view class="host-sub ellipsis">{{statusText || '已就绪'}}{{linkAgeText}}</view>
+      <view class="host-sub ellipsis">{{statusText || hostReadyText}}{{linkAgeText}}</view>
 
       <!-- 解除配对：**在这张卡上**（2026-10-04 用户要求从底部挪进来）。
            这张卡写的就是"现在连的是哪台主机、通不通"，"不要这台了"是它的动作，
            沉在页面最底部没人找得到。底部原来挨着的那颗多余入口同时删除：
-           先解除、再扫码就是再来一次，多一颗按钮只多一次误触。 -->
+           先解除、再扫码就是再来一次，多一颗按钮只多一次误触。
+           演示态下这句话换成「退出演示」——那时没有配对可解。 -->
       <view class="host-actions">
-        <view class="host-danger" hover-class="pressed" hover-stay-time="80" bindtap="onUnpair">解除配对</view>
+        <view class="host-danger" hover-class="pressed" hover-stay-time="80" bindtap="onUnpair">{{demo ? '退出演示' : '解除配对'}}</view>
       </view>
     </view>
 
@@ -166,11 +184,12 @@
       </view>
     </view>
 
-    <view wx:if="{{sessions.length === 0}}" class="card empty-card">
-      <t-empty
-        icon="chat"
-        description="{{archivedCount ? '这里没有进行中的会话（' + archivedCount + ' 条已归档，在下面）' : (status === 'online' ? '主机上还没有会话。点上面的「＋ 新建会话」开一条' : '连上主机后，这里会列出它的会话')}}" />
-    </view>
+    <!-- 加载态骨架与空态**互斥**（wx:if / wx:elif）：两者同时存在会先看到骨架、
+         再看到内容跳一下，那还不如不要骨架。
+         文案由 JS 给（`emptyTitle` / `emptyDesc`），不在 wxml 里套三元 ——
+         "三元套三元"正是上一次加状态就得再嵌一层的形状。 -->
+    <drc-skeleton wx:if="{{listLoading}}" rows="3" />
+    <drc-empty wx:elif="{{sessions.length === 0}}" icon="💬" title="{{emptyTitle}}" desc="{{emptyDesc}}" />
 
     <!-- 一条会话一行，整张列表一张卡（2026-10-05 用户：还是原来的样式，不要卡片）。
          2026-10-05 白天那一版"一会话一卡"（1.1.16）撤了。
@@ -241,58 +260,39 @@
          现在单独成一组、默认折叠（大多数归档是"做完了先收起来"），
          展开后每行长按可取消归档。
          ⚠️ 空列表时整区不占地方：那句话说给"有过归档"的人听。 -->
-    <view wx:if="{{archivedCount}}" class="section-title">
-      <text>归档</text>
-      <view
-        class="section-action"
-        hover-class="pressed"
-        hover-stay-time="80"
-        bindtap="onToggleArchived">
-        <view class="caret {{archivedOpen ? 'up' : ''}}"></view>
-        <text>{{archivedOpen ? '收起' : '展开'}}</text>
-      </view>
-    </view>
-
-    <view wx:if="{{archivedOpen && archivedCount}}" class="card">
-      <block wx:for="{{archivedSessions}}" wx:for-index="idx" wx:key="id">
-        <view wx:if="{{idx > 0}}" class="sess-line"></view>
-        <view
-          class="sess"
-          hover-class="pressed"
-          hover-stay-time="80"
-          data-id="{{item.id}}"
-          data-title="{{item.title}}"
-          bindtap="onArchivedTap"
-          bindlongpress="onArchivedLongPress">
-          <view class="sess-bar"></view>
-          <view class="sess-main">
-            <view class="sess-head">
-              <view class="sess-title ellipsis">{{item.title}}</view>
-              <!-- 进度**就地**显示在徽标位上：不在行里加第二个指示器，
-                   那一行已经有色条/标题/徽标/项目名/时间五样了。 -->
-              <view class="sess-badge {{archivingId === item.id ? 'primary' : 'default'}}">
-                <text>{{archivingId === item.id ? '处理中' : '已归档'}}</text>
-              </view>
-            </view>
-            <view class="sess-meta">
-              <view wx:if="{{item.workspaceTag}}" class="sess-project">
-                <view class="sess-project-dot"></view>
-                <text class="sess-project-name ellipsis">{{item.workspaceTag}}</text>
-              </view>
-              <view class="sess-time">{{item.updatedAt}}</view>
-            </view>
-          </view>
-        </view>
-      </block>
-    </view>
-
-    <!-- 底部只剩主题切换：配对相关的动作都收到主机卡上去了
-         （解除配对在卡里，旁边那颗多余入口 2026-10-04 删除——先解除再扫码即可）。 -->
-    <view class="footer-row">
-      <view class="theme-toggle" hover-class="pressed" hover-stay-time="80" bindtap="onToggleTheme">
-        <view class="theme-glyph {{themeName}}"></view>
-        <text>{{themeName === 'dark' ? '浅色' : '深色'}}</text>
-      </view>
+    <!-- 归档：**只报数量**（2026-10-08 用户裁决："归档只显示数量，不用展开和查看"）。
+         为什么收回展开：归档的主语义是"这些做完了，收起来"，
+         列表页真正要回答的是"有什么在等我"；把归档做成可展开的清单，
+         等于在同一屏里给了它第二种身份 —— 而它一旦可展开，用户就会在里面找
+         "取消归档"，而取消归档是主机侧的动作，手机上做它只需要一次长按确认。
+         数据仍然保留（`archivedSessions` / `archivedCount` 都还在算），
+         万一将来要在别处给入口，那时的数据是现成的。 -->
+    <view wx:if="{{archivedCount}}" class="archived-note">
+      <text>已归档 {{archivedCount}} 条</text>
     </view>
   </block>
+
+  <!-- ⚠️ 右下角一列悬浮键：**分享** + **主题**。两个都放在两个 `wx:if` 分支之外 ⇒
+       未配对（扫码首页）与已配对（会话列表）两屏都在、位置一致（用户 2026-10-10：
+       「在 home 和 sessions 都能切换，统一位置」）。
+       ⚠️ 设置页**整个删掉**（2026-10-08 用户裁决：「设置页和相关按钮去掉，
+          目前不需要这个功能」），连接诊断与关于暂时无处安放 —— 不留空壳入口。
+          `onOpenSettings` 处理器也一并删了，免得留下没人调的入口。 -->
+  <view class="fab-stack">
+    <!-- 分享：**必须用 `<button open-type="share">`** —— 小程序没有"以代码打开转发面板"
+         的 API，`<button open-type="share">` 与右上角「…」菜单是仅有的两个入口。
+         ⚠️ 这里**不承诺任何奖励**（2026-10-10 用户裁决：「不做奖励，分享入口不承诺解锁」）：
+         以功能解锁为奖励诱导分享属于微信的**诱导分享**，`docs/MP-REVIEW.md` 的
+         「无诱导分享」是一条已声明的审核事实。判据 `e2e/mp-review-safety.test.mjs`
+         钉住这段文案里不许出现"解锁 / 奖励 / 领取"这类词。 -->
+    <button class="share-fab" open-type="share" hover-class="pressed" aria-label="分享给朋友">
+      <view class="share-icon"></view>
+    </button>
+    <view class="theme-fab" hover-class="pressed" hover-stay-time="80" bindtap="onToggleTheme">
+      <!-- 图标用 **SVG 形状 + mask**：形状是矢量的，颜色仍然是主题 token
+           （`--td-text-color-secondary`），所以不需要为两套主题各烘一份带色 SVG。
+           画的是"点了会变成什么"：当前浅色 ⇒ 月亮；当前深色 ⇒ 太阳。 -->
+      <view class="theme-icon {{themeName === 'dark' ? 'sun' : 'moon'}}"></view>
+    </view>
+  </view>
 </view>

@@ -1,0 +1,18 @@
+<!--
+  drc-empty —— 空态（阶段 C2）。用法：
+
+    <drc-empty icon="💬" title="还没有会话" desc="连上主机后，这里会列出它的会话">
+      <t-button theme="primary" size="large" bindtap="onNew">＋ 新建会话</t-button>
+    </drc-empty>
+
+  ⚠️ 默认 slot 就是"动作位"：没有动作时**不要**塞一个空 view 进去，
+     组件会自己收掉那一块（见 wxss 的 :empty 兜底）。
+-->
+<view class="drc-empty" catchtap="noop">
+  <view wx:if="{{icon}}" class="drc-empty-icon">{{icon}}</view>
+  <view wx:if="{{title}}" class="drc-empty-title">{{title}}</view>
+  <view wx:if="{{desc}}" class="drc-empty-desc">{{desc}}</view>
+  <view class="drc-empty-action">
+    <slot></slot>
+  </view>
+</view>

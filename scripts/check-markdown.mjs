@@ -296,15 +296,42 @@ test('深色下正文/行内码/引用色都换了具体值，不是 var(--xxx)'
   assert.notEqual(/color:([^;]*)/.exec(styleOf(lightP))[1], /color:([^;]*)/.exec(styleOf(darkP))[1], '深浅色下正文色相同')
 })
 
-test('PALETTE 两套色板各自的正文色都过对比度门槛（正文 4.5:1）', () => {
+test('PALETTE 两套色板：每一个"前景压它真正的底"都要过对比度门槛', () => {
   // 这是 markdown 唯一自己定义颜色的地方 —— wxss 变量表管不到 inline style，
   // 所以对比度必须在这里自证，不能指望 check-mp-contrast（它只扫 wxss）。
   // 反证：把 dark.text 改成 '#181818'（深色下的近黑）→ 这条立刻红。
+  //
+  // ⚠️ 2026-10-10 **从"只验 text"扩成逐组合验**。原来只算 `text` 一个键，
+  // 于是 `light.muted = #7a7a7a` 一直是绿的 —— 而它压白卡只有 4.29:1、
+  // 压 quoteBg 只有 3.97:1，两个都不达 4.5，正是 placeholder 那一档要修的灰。
+  // **只验一个键的判据守不住一张六个键的表**：没被算到的键等于没写判据。
+  //
+  // 组合表来自本文件真实的拼装处（改那几处时要一起改这里）：
+  //   `codeBg + color:text`（代码块，两处）  `quoteBg + color:muted`（引用）
+  //   `muted` 直接压在正文卡上（表格脚注、列表标记）
+  const CARD = { light: '#ffffff', dark: '#141822' }
+  // 正文卡底 = --td-bg-color-container：浅色白，深色 2026-10-09 起是 #141822
+  // （这里原来写的是 #181818，那是**旧的页面底**，不是正文卡 —— 底色取错，
+  //  算出来的分是"在一张不存在的底上"的，与真机无关）。
   for (const [name, p] of Object.entries(md.PALETTE)) {
-    for (const key of ['text']) {
-      const ratio = contrast(p[key], name === 'dark' ? '#181818' : '#ffffff')
-      assert.ok(ratio >= 4.5, `${name}.${key} = ${p[key]} 在页面底色上只有 ${ratio.toFixed(2)}:1（门槛 4.5:1）`)
+    const combos = [
+      ['text', CARD[name], '正文'],
+      ['muted', CARD[name], '次要文字直接压在正文卡上'],
+      ['text', p.codeBg, '代码块里的正文'],
+      ['muted', p.quoteBg, '引用块里的文字'],
+    ]
+    for (const [key, bg, desc] of combos) {
+      const ratio = contrast(p[key], bg)
+      assert.ok(
+        ratio >= 4.5,
+        `${name}.${key} = ${p[key]} 压 ${bg}（${desc}）只有 ${ratio.toFixed(2)}:1（门槛 4.5:1）`,
+      )
     }
+    // 顺带钉住"底与卡不同色"：codeBg/quoteBg 与卡片同色时，代码块/引用块整块消失
+    // （2026-10-04 真的发生过一次）。这是**看得见**的要求，不是对比度能表达的。
+    assert.notEqual(p.codeBg, CARD[name], `${name}.codeBg 与正文卡同色 ⇒ 代码块整块消失`)
+    assert.notEqual(p.quoteBg, CARD[name], `${name}.quoteBg 与正文卡同色 ⇒ 引用块整块消失`)
+    assert.notEqual(p.rule, CARD[name], `${name}.rule 与正文卡同色 ⇒ 分隔线看不见`)
   }
 })
 

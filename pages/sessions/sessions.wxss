@@ -24,6 +24,25 @@
   justify-content: center;
 }
 
+/* 首屏那枚徽标是整页唯一的品牌展示面 —— **两个主题都给**渐变 + 投影。
+   （2026-10-09 只给深色做过；2026-10-10 扩到共用：浅色是**默认**主题，
+   只给深色加等于大多数用户看不到这个设计。）
+   ⚠️ `background`（那一个变量）保持不动、渐变叠在它上面：对比度闸读的是
+   `background`，它看到的必须是真的底色。渐变两端的白字对比度在
+   gen-mp-theme.mjs 的 `DARK_PAINT` / `LIGHT_PAINT` 注释里各自手工守着。 */
+.hero-mark {
+  background-image: var(--td-brand-gradient);
+  /* 浅色：投影用**中性冷灰**而不是品牌色 —— 品牌色投影在浅底上会泛出一圈紫，
+     看着像没对准焦。深色那边反过来（见下）：深底上中性阴影根本看不见。 */
+  box-shadow: 0 10rpx 26rpx 0 rgba(29, 42, 74, 0.20);
+}
+
+.theme-dark .hero-mark {
+  box-shadow:
+    0 14rpx 36rpx 0 rgba(63, 91, 246, 0.32),
+    inset 0 2rpx 0rpx 0 rgba(255, 255, 255, 0.22);
+}
+
 .hero-title {
   text-align: center;
   font-size: 40rpx;
@@ -41,6 +60,49 @@
 .hero-note {
   margin-top: 20rpx;
   text-align: center;
+}
+
+/* 演示入口：次级文字链，不做成按钮 ——
+   它是"没有主机时也能看看"的退路，不是与主按钮竞争的第二条主路径。
+   但字号与颜色要与 .manual-toggle 同级（可见、不那么抢），
+   否则"藏起来的演示等于没有演示"。 */
+.hero-demo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 24rpx;
+  padding: 16rpx;
+  font-size: 26rpx;
+  color: var(--td-text-color-secondary, #5c6470);
+}
+
+/* ── 演示横幅 ─────────────────────────────────────────────────────
+   常驻在列表最上方，**不随任何状态消失**：它回答的是"这些是不是真数据"，
+   而那个问题在每一帧都存在。用中性灰而不是警告色——演示不是错误状态，
+   但也不能用品牌色（那会读成"这是推荐的操作"）。 */
+.demo-strip {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 12rpx;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.demo-dot {
+  flex: 0 0 auto;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--td-text-color-placeholder, #9aa0a6);
+}
+
+.demo-text {
+  min-width: 0;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  color: var(--td-text-color-secondary, #5c6470);
 }
 
 /* 手动输入的开关。纯 CSS 三角，展开时翻转 —— 比两个纯文字更能提示可折叠 */
@@ -322,18 +384,7 @@
   }
 }
 
-.empty-card {
-  padding: 32rpx 0 16rpx;
-}
-
 /* 归档会话被过滤掉时的一句说明（居中、弱化，别抢会话行的注意力） */
-.hidden-note {
-  margin-top: 20rpx;
-  text-align: center;
-  font-size: 22rpx;
-  line-height: 34rpx;
-  color: var(--td-text-color-placeholder, #a0a6b0);
-}
 
 .sess {
   display: flex;
@@ -341,7 +392,6 @@
   align-items: flex-start;
   padding: 24rpx 24rpx 24rpx 0;
 }
-
 
 /* 左侧状态色条：一整张卡里的一行，所以只需要对着这一行的高度。
    通高（stretch）是 10-05 白天"一会话一卡"那版的产物——那张每行自成一个
@@ -376,7 +426,6 @@
   min-width: 0;
   margin-left: 22rpx;
 }
-
 
 /* 标题：第一行里占比最大的那块。flex:1 让它把徽挤到右边后剩下的全占，
    min-width:0 是 ellipsis 能生效的前提（flex 子项默认不会窄于内容宽）。 */
@@ -504,50 +553,109 @@
   color: var(--td-success-color-6, #029e42);
 }
 
+/* ── 右下角一列悬浮键：分享 + 主题（2026-10-10）─────────────────────────
+   用户要求：「在 home 和 sessions 都能切换，统一位置」。
 
+   改之前主题开关是"已配对"那一支 footer 里的一个胶囊 —— 而未配对那一屏（扫码首页）
+   **根本没有 footer** ⇒ 那一屏切不了主题。所以换成**一列固定悬浮键**：
+   两个元素、一个位置、两屏都在（wxml 里它们已经在两个 `wx:if` 分支之外）。
 
-/* ── 底部：只剩外观切换（配对相关动作 2026-10-04 收进主机卡）────────────────────────────────────
-   放底部而不是顶栏：这些是"偶尔改一次"的设置，顶栏是窗口控制条，
-   塞设置会把运行态的信息挤掉。
-   图形用 CSS 画（半边月 / 圆饼），不用 t-icon —— 图标字体走远程 CDN，
-   拉不到就是一堆空白方块且不报错。 */
-.footer-row {
+   位置选**右下角**而不是顶栏：顶栏是系统导航栏（原生组件，不吃 CSS），
+   自己再画一条会多占一行；右下角是拇指区，也是这一页历史上主题开关待过的地方。
+
+   ⚠️ `width/height` 给到 **88rpx = 44px**：判据 ⑪ 要求"绑了手势且写了固定宽高的元素
+   最小边不小于 88rpx"。两个键都是固定尺寸，所以必须过线 —— 不能靠 padding 撑。
+   ⚠️ 五类几何声明一律走 `--drc-*` token（`check-mp-tokens` 的棘轮卡着裸值）；
+   `width/height/right/bottom` 不在那份名单里。 */
+.fab-stack {
+  position: fixed;
+  right: var(--drc-space-3);
+  bottom: calc(var(--drc-space-3) + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--drc-space-2);
+}
+
+/* 两个键共用同一副"壳"：同尺寸、同圆角、同底色 —— 它们是同一层的次要动作，
+   长得不一样会让人以为其中一个更重要。 */
+.theme-fab,
+.share-fab {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  margin-top: 24rpx;
+  justify-content: center;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: var(--drc-radius-pill);
+  background: var(--td-bg-color-container);
+  border: 2rpx solid var(--td-component-border);
+  box-shadow: var(--td-shadow-1);
 }
 
-.theme-toggle {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  margin-top: 0;
-  padding: 12rpx 22rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  color: var(--td-text-color-secondary, #5c6470);
-  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
-  border: 2rpx solid var(--td-component-border, #e7e7e7);
+/* ⚠️ 小程序的原生 `<button>` 自带一套样式（灰底、圆角、`::after` 那圈边框），
+   不复位的话它会把上面那副壳盖掉 —— 表现为"分享键长得跟主题键不一样"。
+   这几条**不是**可选的润色，是让 `<button>` 退化成普通盒子的必要复位。
+   （`<button>` 是必需的：`open-type="share"` 只在这个标签上生效。） */
+.share-fab {
+  padding: 0;
+  margin: 0;
+  line-height: normal;
+  font-size: 0;
+  overflow: visible;
 }
 
-/* 当前是浅色 → 画一个"月牙"，表示"点了变深"；反之画一个"圆饼"。
-   形状与语义对齐：用户看到月亮就知道要去暗色那边。 */
-.theme-glyph {
-  width: 26rpx;
-  height: 26rpx;
-  border-radius: 50%;
-  margin-right: 10rpx;
+.share-fab::after {
+  border: none;
 }
 
-.theme-glyph.light {
-  background: var(--td-text-color-primary, #1f2329);
-  /* 挖出一个圆：靠 box-shadow 往右偏移投出同色圆盘遮住一部分 */
-  box-shadow: inset -7rpx -3rpx 0 0 var(--td-bg-color-secondarycontainer, #f3f3f3);
+/* ── 图标：**SVG 形状 + CSS mask** ─────────────────────────────────────
+   形状是矢量的（月牙 / 太阳 / 分享），颜色仍然是主题 token ——
+   `background-color` 决定颜色、`mask` 决定形状，所以**不需要**为两套主题
+   各烘一份"带色 SVG"（那种做法会把色值写死进 wxss，改配色时没人会想起来改它）。
+
+   ⚠️ 为什么不用图标字体：TDesign 的 t-icon 走远程 CDN，拉不到就是一堆空白方块
+   且**不报错**。
+   ⚠️ `mask` 在本项目的目标渲染器里**有先例**：TDesign 的 loading 组件就用
+   `-webkit-mask` 画环形缺口（`miniprogram_npm/.../loading.wxss`），所以不是新引入的能力。
+   标准属性与 `-webkit-` 前缀都写一份（微信 webview 两个都认，写全了换渲染器也不翻）。 */
+.theme-icon,
+.share-icon {
+  width: 40rpx;
+  height: 40rpx;
+  background-color: var(--td-text-color-secondary);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
-.theme-glyph.dark {
-  border: 3rpx solid var(--td-text-color-primary, #1f2329);
-  background: transparent;
+/* 月牙（Feather 的 moon）：当前是浅色 ⇒ 点了变深。
+   ⚠️ SVG 里的 `stroke='#fff'` **只是为了让 mask 取到不透明像素** ——
+   它不决定显示颜色（颜色来自上面的 `background-color`），所以不是写死的色值。 */
+.theme-icon.moon {
+  -webkit-mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PHBhdGggZD0nTTIxIDEyLjc5QTkgOSAwIDEgMSAxMS4yMSAzIDcgNyAwIDAgMCAyMSAxMi43OXonLz48L3N2Zz4=');
+  mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PHBhdGggZD0nTTIxIDEyLjc5QTkgOSAwIDEgMSAxMS4yMSAzIDcgNyAwIDAgMCAyMSAxMi43OXonLz48L3N2Zz4=');
+}
+
+/* 太阳（Feather 的 sun）：当前是深色 ⇒ 点了变浅。 */
+.theme-icon.sun {
+  -webkit-mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PGNpcmNsZSBjeD0nMTInIGN5PScxMicgcj0nNCcvPjxwYXRoIGQ9J00xMiAxLjZ2Mi4yTTEyIDIwLjJ2Mi4yTTMuOSAzLjlsMS42IDEuNk0xOC41IDE4LjVsMS42IDEuNk0xLjYgMTJoMi4yTTIwLjIgMTJoMi4yTTMuOSAyMC4xbDEuNi0xLjZNMTguNSA1LjVsMS42LTEuNicvPjwvc3ZnPg==');
+  mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PGNpcmNsZSBjeD0nMTInIGN5PScxMicgcj0nNCcvPjxwYXRoIGQ9J00xMiAxLjZ2Mi4yTTEyIDIwLjJ2Mi4yTTMuOSAzLjlsMS42IDEuNk0xOC41IDE4LjVsMS42IDEuNk0xLjYgMTJoMi4yTTIwLjIgMTJoMi4yTTMuOSAyMC4xbDEuNi0xLjZNMTguNSA1LjVsMS42LTEuNicvPjwvc3ZnPg==');
+}
+
+/* 分享（Feather 的 share-2）：三个节点 + 两条连线。 */
+.share-icon {
+  -webkit-mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PGNpcmNsZSBjeD0nMTgnIGN5PSc1JyByPSczJy8+PGNpcmNsZSBjeD0nNicgY3k9JzEyJyByPSczJy8+PGNpcmNsZSBjeD0nMTgnIGN5PScxOScgcj0nMycvPjxsaW5lIHgxPSc4LjU5JyB5MT0nMTMuNTEnIHgyPScxNS40MicgeTI9JzE3LjQ5Jy8+PGxpbmUgeDE9JzE1LjQxJyB5MT0nNi41MScgeDI9JzguNTknIHkyPScxMC40OScvPjwvc3ZnPg==');
+  mask-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCcgZmlsbD0nbm9uZScgc3Ryb2tlPScjZmZmJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcgc3Ryb2tlLWxpbmVqb2luPSdyb3VuZCc+PGNpcmNsZSBjeD0nMTgnIGN5PSc1JyByPSczJy8+PGNpcmNsZSBjeD0nNicgY3k9JzEyJyByPSczJy8+PGNpcmNsZSBjeD0nMTgnIGN5PScxOScgcj0nMycvPjxsaW5lIHgxPSc4LjU5JyB5MT0nMTMuNTEnIHgyPScxNS40MicgeTI9JzE3LjQ5Jy8+PGxpbmUgeDE9JzE1LjQxJyB5MT0nNi41MScgeDI9JzguNTknIHkyPScxMC40OScvPjwvc3ZnPg==');
+}
+
+/* 归档计数行（2026-10-08：归档区收回成"只报数量"）。
+   刻意做得比会话行更轻：它是脚注，不是入口 —— 不给按压反馈，也不做可点的东西。 */
+.archived-note {
+  padding: var(--drc-space-2) var(--drc-space-3);
+  text-align: center;
+  color: var(--td-text-color-placeholder);
+  font-size: var(--drc-font-sm);
 }

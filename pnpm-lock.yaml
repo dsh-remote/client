@@ -1,0 +1,30 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      js-base64:
+        specifier: ^3.7.7
+        version: 3.9.4
+      tdesign-miniprogram:
+        specifier: ^1.10.0
+        version: 1.17.0
+
+packages:
+
+  js-base64@3.9.4:
+    resolution: {integrity: sha512-PtOMXpEGuP0RRiRXsjzHzl44dMHxSu2CPvAhinupR1tBa88me+1DPqsobl7eupn5UukjLkln1ZnAOAOXOrYG0Q==}
+
+  tdesign-miniprogram@1.17.0:
+    resolution: {integrity: sha512-r/MsvadJDq8OPLNE8prV/akEiOe9L6PGF0knjMHuqt/SmVJV+4P5bxq8o3HLs2H8GexEavE3TKVZPqqTEyvlUg==}
+
+snapshots:
+
+  js-base64@3.9.4: {}
+
+  tdesign-miniprogram@1.17.0: {}

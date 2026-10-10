@@ -8,13 +8,13 @@
   "window": {
     "backgroundTextStyle": "dark",
     "navigationBarBackgroundColor": "#ffffff",
-    "navigationBarTitleText": "DSH 远程控制",
+    "navigationBarTitleText": "DSH 助手",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f3f3f3"
   },
   "permission": {
     "scope.camera": {
-      "desc": "用于扫描主机上显示的配对二维码"
+      "desc": "用于扫描电脑上显示的二维码，完成设备配对"
     }
   },
   "sitemapLocation": "sitemap.json"

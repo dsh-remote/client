@@ -57,6 +57,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { TOKENS, GEOMETRY_GROUPS, TYPE_GROUPS, GRID_RPX, TYPE_STEP_RPX, tokenDecls } from '../theme/tokens.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(
@@ -135,13 +136,231 @@ const BRAND_ON_TINT = '--td-brand-color-on-tint'
  * 自己的问题（TDesign 面向大屏，字号大、对比要求低），必须压暗。
  * 往下调到 #2667d4（primary-color-7）：白字 4.83:1 达标，且仍是明确的蓝。
  * 深色下按钮本来就是深底，再深一档不影响观感，但**白字更清楚了**。
+ *
+ * ⚠️ **2026-10-09 改到 #3f5bf6**：主题从"能用的深灰"改成"深空墨蓝"之后，
+ * #2667d4 在新底（#141822）上显得又暗又旧——它是为 TDesign 原底 #242424 挑的。
+ * #3f5bf6 白字 **5.20:1**（比旧值还高），色相从"企业蓝"偏到"靛蓝"，
+ * 与下面 `DARK_PAINT` 的渐变另一端 #6d5cf0 同一族 ⇒ 渐变看不出来是接缝。
  */
-const DARK_BRAND_BG = [['--td-brand-color', '#2667d4', '3.43 → 4.83（压白字）']]
+const DARK_BRAND_BG = [['--td-brand-color', '#3f5bf6', '4.83 → 5.20（压白字）']]
 /**
  * `${BRAND_ON_TINT}` 在深色下的取值。浅色那边同值（#0052d9），所以 wxss 里
  * 无条件用这个变量、浅色观感不变。实测：压 brand-1 浅底 4.87:1、压卡片底 5.66:1。
+ *
+ * ⚠️ 2026-10-09 改到 #8aa4ff：`DARK_BRAND_BG` 亮了一档之后，字色这一侧必须跟着亮，
+ * 否则「品牌字压品牌浅底」会掉到 4.5 以下。实测压 brand-1（#1b2550）**6.19:1**。
  */
-const DARK_BRAND_ON_TINT = '#6b9dec'
+const DARK_BRAND_ON_TINT = '#8aa4ff'
+
+/**
+ * ── 深色「表面色阶」：从中性灰换成冷调墨蓝（2026-10-09）─────────────────
+ *
+ * ## 为什么这一层是整轮改动里最要紧的一条
+ *
+ * TDesign 的深色分支是一套**纯中性灰**（#181818 / #242424 / #2c2c2c / #383838）。
+ * 它能用，但它是"默认深色"的样子：把界面调暗就结束了，**没有任何一处是为了
+ * 让人愿意多看一眼而设计的**。本项目把深色做成**分享裂变的奖励**——
+ * 奖励必须是"打开就想截图"的那一档，"功能一样只是颜色深"不算奖励。
+ *
+ * 换掉它的收益是**全局**的：这些变量同时喂给 `--td-bg-color-page/container/
+ * secondarycontainer/component` 与两级描边，而本项目的 `--drc-surface-*`、
+ * `--drc-border*` 语义 token 又指到它们上面 ⇒ 改这一处，四十多个类名一起变。
+ *
+ * ## 取值怎么挑的（不是"看着好看"，是三条算出来的）
+ *
+ * ① **色相统一偏冷**（蓝紫方向），最深一档压到 #0a0b10：中性灰的深色在 OLED 上
+ *    会显得"发灰发脏"，冷调墨蓝在纯黑背景上更干净。
+ * ② **相邻两档必须能看出差别**，实测各 1.11:1 —— 这是"层次"的下限：
+ *    再接近，页面/卡片/代码块就糊成一片；再远，卡片会飘起来。
+ * ③ **描边不能太亮**。TDesign 深色的 `--td-component-border` 是 gray-9 = #5e5e5e，
+ *    那是**浅色档的描边**在深底上的样子，整屏卡片被一圈灰线框住、发灰。
+ *    压到 #414b63（对卡片底 1.7:1）后，层次交给 `app.wxss` 的 `.card` 投影与内高光。
+ *
+ * ⚠️ gray-8..11 在 TDesign 深色分支里**只被当作底色与描边**（已逐个 grep 确认：
+ * bg-color-component / secondarycomponent / border-level-1/2 / component-stroke），
+ * 没有任何一处拿它们当前景 —— 所以整条色阶可以安全换掉，不会连带改掉文字色。
+ */
+const DARK_SURFACE = [
+  ['--td-gray-color-14', '#0a0b10', '页面底。TDesign 原值 #181818 —— 在纯黑 OLED 上偏灰'],
+  ['--td-gray-color-13', '#141822', '卡片底：与页面底差 1.11:1，卡片才"浮"得起来'],
+  ['--td-gray-color-12', '#1c2130', '陷入一层：代码块、引用块'],
+  ['--td-gray-color-11', '#242c3d', '组件底 + 一级分割线'],
+  ['--td-gray-color-10', '#333c52', '组件底（按下态）/ 二级底'],
+  ['--td-gray-color-9', '#414b63', '二级分割线 + 卡片描边。⚠️ TDesign 原值 #5e5e5e 是给浅底用的，深底上整屏发灰'],
+  ['--td-gray-color-8', '#5a6480', '次级组件底（激活态）'],
+]
+
+/**
+ * ── 深色「亮点」素材（2026-10-09）────────────────────────────────────
+ *
+ * 表面色阶把深色**做干净**了，但"干净"不等于"好看"—— 干净是及格线，好看要另外给。
+ * 这一层是给 `app.wxss` / 各页 wxss 用的**效果素材**：极光、辉光、品牌渐变。
+ *
+ * ## 为什么不进 `theme/tokens.mjs`（那个表才是"设计 token 唯一事实源"）
+ *
+ * 表里的 token 值只能是 `0` / `Nrpx` / `var(--td-…)` 三种（`checkTokens` 逐条卡），
+ * 而渐变是 `linear-gradient(...)` —— 塞进去会被生成期体检当场拒绝。
+ * 另一条路是"表里写 `var(--td-brand-gradient)`、两套主题都声明那个 `--td-*`"，
+ * 但本轮**刻意不做**：浅色主题的外观一个字都不该动（用户只点了深色），
+ * 而为几个深色专属效果去动浅色，是拿"表的整齐"换"用户没要求的东西"。
+ *
+ * ⇒ 结论：这些是**深色主题专属的效果值**，定义在这一层（只在 `.theme-dark` 生效），
+ * wxss 里直接 `var(--td-…)` 引用 —— 与现有三十多处 `var(--td-brand-color)` 同款写法。
+ * 配套判据在 `e2e/mp-theme.test.mjs`（「深色效果素材不许悬空」）——
+ * **引用一个不存在的变量是静默失效**：不报错，只是那一处什么效果都没有。
+ *
+ * ## 两端的对比度都算过，不是"看着配"
+ *
+ * `--td-brand-gradient` 的两端 #3f5bf6 / #6d5cf0 压白字分别是 5.20:1 与 4.73:1，
+ * 都过 4.5 —— 用户气泡里的白字落在渐变哪一端都读得清。
+ * ⚠️ 对比度闸读的是 `background-color`（#3f5bf6，5.20:1），**看不见 `background-image`**
+ * ⇒ 渐变那一层是闸门的盲区，所以两端必须手工守住，理由写在这里而不是留在脑子里。
+ */
+const DARK_PAINT = [
+  ['--td-brand-gradient', 'linear-gradient(135deg, #3f5bf6 0%, #6d5cf0 100%)', '品牌渐变：用户气泡与徽标'],
+  ['--td-aurora-indigo', 'rgba(99, 102, 241, 0.20)', '极光·靛：列表页顶部环境光'],
+  ['--td-aurora-cyan', 'rgba(34, 211, 238, 0.13)', '极光·青：叠在靛上，冷暖对冲'],
+  ['--td-glow-brand', 'rgba(99, 102, 241, 0.42)', '品牌辉光：状态灯 / 主徽标的外圈'],
+  ['--td-glow-success', 'rgba(31, 214, 153, 0.34)', '在线灯的呼吸辉光'],
+  // ⚠️ 语义色的辉光**不**从 --td-error-color-6 之类派生：那些是"给字用的浅色值"，
+  // 当辉光会亮得刺眼（它要的是"暗处的一圈光"，不是"看得清"）。这里各给一档更暗的。
+  ['--td-glow-warning', 'rgba(240, 160, 90, 0.30)', '等待灯的辉光'],
+  ['--td-glow-danger', 'rgba(255, 138, 146, 0.28)', '异常灯的辉光'],
+  ['--td-card-sheen', 'rgba(255, 255, 255, 0.055)', '卡片顶边内高光（"玻璃浮起"那一线）'],
+]
+
+/**
+ * ── 浅色「表面色阶 + 打断 secondarycontainer 的别名」（2026-10-10）─────
+ *
+ * ## 这一层修的是一个**被追了很久、但一直没找到根因**的缺陷
+ *
+ * `chat.wxss` 里有两段长注释（`.todo-bar` 与 `.composer-pill`）在讲同一件事：
+ * 「浅色主题里 `--td-bg-color-page` 与 `--td-bg-color-secondarycontainer` 是同一个值，
+ * 所以拿 secondarycontainer 做层次区分在这里**不产生任何区分**」，用户先后报过
+ * 「待办条的背景也没了」「把文本框样式弄没了」，为此还把整页的层次退化成"只有两档"。
+ *
+ * **根因在 TDesign 的浅色分支里**（已 grep 确认，只有这两个变量）：
+ *     --td-bg-color-page:            var(--td-gray-color-1)
+ *     --td-bg-color-secondarycontainer: var(--td-gray-color-1)
+ * 两者是**同一个别名的两份拷贝** —— 所以只改 gray-1 永远分不开它们，
+ * 必须把 `--td-bg-color-secondarycontainer` **直接覆写**（下面那一行就是拆别名）。
+ *
+ * ## 拆掉之后，哪些地方会真的变好（不是"顺手改改"）
+ *
+ * | 位置 | 改之前 | 改之后 |
+ * |---|---|---|
+ * | `.demo-strip`（演示横幅，直接贴在页面上） | 与页面同色 ⇒ **底色等于没画** | 冷灰、看得出是一条横幅 |
+ * | 代码块 / 引用块 / `.step-v` | 靠"卡片是白的"勉强有层次 | 有了真正的下沉档 |
+ * | `.pill` 默认态、`.composer-pill` | 在**白卡上**才看得出灰 | 不变（仍比白深） |
+ *
+ * ⚠️ 两档的方向是**深**而不是**浅**：页面已经是浅灰、卡片是纯白，
+ * 再往上没有空间了；而"次要容器"在 TDesign 的语义里本来就是**下沉**的那一档。
+ *
+ * ⚠️ 色相走冷（蓝灰）而不是中性灰：与深色主题的"深空墨蓝"同一族，
+ * 两个主题切换时不会像换了一个 App。中性灰的浅色在手机屏上偏"脏"，冷灰更干净。
+ */
+const LIGHT_SURFACE = [
+  ['--td-gray-color-1', '#eff2f7', '页面底。TDesign 原值 #f3f3f3（中性灰）'],
+  // ⚠️⚠️ **这一行是整个浅色改版的核心**：它不是"再调一个灰"，
+  // 而是把上面那个别名**拆开** —— 不拆的话 gray-1 改到哪儿它就跟到哪儿。
+  ['--td-bg-color-secondarycontainer', '#e5ebf5', '下沉一层（代码块/横幅/胶囊）。**必须显式覆写以打断与 page 的别名**'],
+  ['--td-gray-color-2', '#e9edf4', '组件禁用底'],
+  ['--td-gray-color-3', '#e1e7f0', '组件底 + 一级分割线'],
+  ['--td-gray-color-4', '#d3dae7', '二级分割线 + 卡片描边'],
+]
+
+/**
+ * 浅色「品牌」：从 TDesign 的企业蓝 `#0052d9` 换成与深色同族的靛蓝。
+ *
+ * 为什么值得改：深色那侧已经定成 `#3f5bf6 → #6d5cf0` 的靛紫渐变，
+ * 而浅色还是 TDesign 的 `#0052d9`（偏青的"企业蓝"）—— 两个主题放在一起
+ * 像两个产品。换成 `#2f4bd6` 之后，浅色的品牌面与深色是**同一族的深浅两档**。
+ *
+ * ⚠️ 浅色**不需要**像深色那样把"底色"与"字色"拆成两个变量：`#2f4bd6` 够深，
+ * 白字压它 6.78:1、它压白卡 6.78:1、压 brand-1 浅底 5.82:1 —— 一个值同时满足
+ * 两个角色。深色那边是因为品牌色必须**变亮**才压得住深底，才被迫拆开。
+ */
+const LIGHT_BRAND = [['--td-brand-color', '#2f4bd6', '企业蓝 → 与深色同族的靛蓝']]
+
+/**
+ * 浅色「亮点素材」。与 `DARK_PAINT` 一一对应，但**物理不一样**：
+ *
+ * 深色底靠"发光"（在半透明里加亮），浅色底靠"加深/加阴影"（亮上加亮等于没加）。
+ * 所以浅色这边的 `--td-wash-*` 是**品牌色的极低透明度**（页面顶部一层几乎看不见的
+ * 冷调），`--td-ring-*` 是状态灯外面那圈**实色描边环**（不是辉光）。
+ *
+ * ⚠️ 命名与深色**故意不共用**（`--td-ring-*` vs `--td-glow-*`）：
+ * 同名会让人以为可以把两套值互换，而它们在不同的底上起相反的作用。
+ */
+const LIGHT_PAINT = [
+  ['--td-brand-gradient', 'linear-gradient(135deg, #2f4bd6 0%, #6d5cf0 100%)', '品牌渐变，与深色共用第二个色标'],
+  // ⚠️ 名字要说**是什么色**，不要 a/b。深色那侧叫 aurora-indigo / aurora-cyan，
+  // 浅色这侧第一批写成了 wash-a / wash-b —— 主题交叉对比时立刻显形：
+  // "a" 与 "b" 什么也没说，改的时候没人知道该动哪一个。改成按色相命名。
+  ['--td-wash-brand', 'rgba(47, 75, 214, 0.070)', '页面顶部一层极淡的品牌靛（浅色的"环境光"）'],
+  ['--td-wash-violet', 'rgba(109, 92, 240, 0.055)', '叠在右侧的紫，冷暖对冲'],
+  // 状态灯环：浅色下"发光"会糊成一团脏色，改成一圈比底色深一档的**实色环**。
+  ['--td-ring-success', 'rgba(0, 122, 78, 0.16)', '在线灯外环'],
+  ['--td-ring-brand', 'rgba(47, 75, 214, 0.16)', '品牌灯外环'],
+  ['--td-ring-warning', 'rgba(168, 79, 0, 0.16)', '等待灯外环'],
+  ['--td-ring-danger', 'rgba(201, 60, 52, 0.16)', '异常灯外环'],
+]
+
+/**
+ * ── 浅色补齐：**TDesign 的深色分支定义了、浅色分支没有**的变量（2026-10-10）
+ *
+ * ## 这个缺口是怎么被发现的、以及它为什么真的要补
+ *
+ * 主题交叉对比（`node .tmp/theme-diff.mjs`）把两套表逐个变量并排，
+ * 发现 TDesign 其实给了**两个** `@media (prefers-color-scheme:dark)`：
+ * 第二段的九个变量**浅色那边一个都没有**。于是：
+ *
+ *   `_index.wxss` 的 `@media (prefers-color-scheme:dark)` 段在
+ *   **系统是深色**时照样生效（media 查的是系统，与我们的 class 无关），
+ *   而 `theme/light.wxss` 只覆写"浅色分支里有过的"那些 ⇒ 这几个变量
+ *   **原样留着深色的值**。
+ *
+ * ⇒ 后果是：**浅色主题的渲染结果取决于用户的系统配色**。而本项目的整个前提
+ * 恰恰是"主题只由用户那颗按钮决定，与系统无关"（`app.json` 写死 `darkmode:false`、
+ * 两套变量都从 `@media` 里解放出来）。系统深色 + 应用浅色（**默认态**）
+ * 这个组合下，浅色主题是"不完整"的。
+ *
+ * ## 实际影响有多大（**如实说，不夸大**）
+ *
+ * 六个变量里只有两个是**绝对色**（其余是 `var(--td-gray-color-N)` 这类主题相对引用，
+ * 会自己解析成浅色的值，安全）：
+ *   · `--td-button-primary-disabled-color` —— 真的被 `button.wxss` 用作**字色**：
+ *     `color:var(--td-button-primary-disabled-color, …)`。泄漏时白字从"纯白"变成
+ *     "40% 白"，而它压的是浅蓝的禁用底 ⇒ 那两个字更淡。**是缺陷，但很轻**
+ *     （禁用态本来就该低对比）。
+ *   · `--td-skeleton-animation-gradient` —— 绝对白 `rgba(255,255,255,.06)`，
+ *     在浅色下等于没有。⚠️ 本项目**没有**用 t-skeleton（用自己的 `drc-skeleton`）
+ *     ⇒ 目前不产生可见影响。
+ *
+ * ⇒ 所以这一条**不是**"修一个用户看得见的 bug"，而是**关掉一个"浅色依赖系统"的口子**：
+ * 它今天很轻，但它会让"浅色主题到底是什么样"变成一个没有唯一答案的问题 ——
+ * 而这正是这个文件存在的全部意义。补上之后，`theme/light.wxss` 变得**自足**。
+ *
+ * ## 取值
+ *
+ * 一律取"浅色分支里本来就该有的那个值"，而不是我为浅色另发明一个：
+ *   · 前三个是 TDesign 深色分支里那些**主题相对引用**的原文 —— 抄过来，
+ *     它们会各自解析成浅色的对应档，与"系统是浅色"时**逐字等价**（可对拍）；
+ *   · `button-primary-disabled-color` 取 `--td-text-color-anti`，
+ *     正是 TDesign 在 button.wxss 里写的那个兜底 —— 把不可达的兜底变成可达的声明；
+ *   · skeleton 的微光在浅底上必须**加深**而不是加亮，换成 6% 的黑。
+ */
+const LIGHT_FIXUPS = [
+  ['--td-button-primary-disabled-color', 'var(--td-text-color-anti)', '禁用主按钮的字色：把 button.wxss 里那个兜底显式化'],
+  ['--td-skeleton-animation-gradient', 'rgba(0, 0, 0, 0.06)', '骨架屏微光：浅底上要加深（TDesign 给的是 6% 白，浅底上等于没有）'],
+  ['--td-slider-dot-bg-color', 'var(--td-gray-color-4)', '与深色分支逐字相同 —— 主题相对引用，两套各自解析'],
+  ['--td-slider-dot-disabled-bg-color', 'var(--td-gray-color-11)', '同上'],
+  ['--td-slider-dot-disabled-border-color', 'var(--td-gray-color-12)', '同上'],
+  // ⚠️ 深色分支里这个写的是 `var(--bg-color-page)` —— 少一个 `td-` 前缀，
+  // 是 TDesign 自己的拼写事故（该引用解析不到，整条声明无效）。
+  // 补的时候**不要照抄**，直接给正确的引用。
+  ['--td-progress-circle-inner-bg-color', 'var(--td-bg-color-container)', '深色分支那句引用写错了（--bg-color-page 少了 td-），这里给正确值'],
+]
 
 /**
  * 浅色侧同样的可读性修正。
@@ -157,16 +376,24 @@ const DARK_BRAND_ON_TINT = '#6b9dec'
  */
 const LIGHT_READABILITY = [
   // 0.56 而不是更高的值：这是**三个底都过 4.5 的最小改动**
-  // （压页面底 4.81 / 卡片底 4.94 / 组件底 4.67）。再往上走会让这一档
+  // （压页面底 4.79 / 卡片底 4.94 / 下沉底 4.71）。再往上走会让这一档
   // 追上 secondary（0.6），"次要文字"与"辅助说明"就分不出层次了。
-  ['--td-text-color-placeholder', 'rgba(0, 0, 0, 0.56)', '2.81 → 4.81'],
+  // ⚠️ 数字跟着 `LIGHT_SURFACE` 的页面底走：2026-10-10 页面底从 #f3f3f3 换成
+  // #eff2f7 之后，压页面那一档从 4.81 掉到 4.79（仍是三档里最紧的那个）。
+  ['--td-text-color-placeholder', 'rgba(0, 0, 0, 0.56)', '2.81 → 4.79'],
   ['--td-text-color-disabled', 'rgba(0, 0, 0, 0.4)', '1.87 → 2.81'],
   // 语义色的 -6 档压自己的 -1 浅底（.pill.success / .step-tick.completed /
   // .act-danger / .sess-badge.warning）。TDesign 给的浅色值都只差一点：
   // 4.07 / 3.90 / 4.09。各调暗一档就到 4.5 以上，改动幅度小到看不出色相变化。
   ['--td-success-color-6', '#007a4e', '4.07 → 4.88'],
-  ['--td-error-color-6', '#c93c34', '3.90 → 4.53'],
-  ['--td-warning-color-6', '#a84f00', '4.09 → 5.02'],
+  // ⚠️ **这个红 2026-10-10 又动了一格**（#c93c34 → #c0342c，只差约 2% 亮度）：
+  // 它在旧页面底 #f3f3f3 上是 4.53，换到新页底 #eff2f7 之后掉到 **4.48 —— 差 0.02 不达标**。
+  // 这不是"顺手调一调"，是 `check-mp-contrast` 当场打红逼出来的：
+  // `.panel-timer.urgent` 与 `.user-failed` 两处正文字色就压在页面底上。
+  // ⇒ 0.02 的余量说明**原来的 4.53 本来就在刀尖上**，底一动就翻。
+  // 新值在三个底上分别是 4.97 / 5.57（卡片）/ 5.03（-1 浅底），留出了余量。
+  ['--td-error-color-6', '#c0342c', '3.90 → 4.97'],
+  ['--td-warning-color-6', '#a84f00', '4.09 → 4.95'],
 ]
 
 /** 把 `@media (prefers-color-scheme:<kind>){ … }` 的 body 逐个抠出来（按花括号配平） */
@@ -228,6 +455,22 @@ const darkReadableCss = `/* 可读性修正（TDesign 深色值在小屏上偏�
 .theme-dark, .theme-dark page {${[...DARK_BRAND_BG, ...DARK_READABILITY]
   .map(([k, v]) => `${k}:${v};`)
   .join('')}${BRAND_ON_TINT}:${DARK_BRAND_ON_TINT};}`
+
+/**
+ * 深色「表面色阶 + 亮点素材」（2026-10-09）。
+ *
+ * ⚠️ **必须排在 `darkReadableCss` 之后**，两者改的是同一批变量：
+ * `DARK_SURFACE` 动的是 gray-8..14（底色与描边），`DARK_READABILITY` 动的是
+ * text-color-* 与语义色。写反了会让可读性修正里的 brand/语义色被下面的色阶盖掉
+ * —— 而那种错**看不出来**（CSS 合法，只是结果与注释里写的不一样）。
+ *
+ * 单独成段而不是并进 `darkReadableCss`：那一段的语义是"修 TDesign 的可读性"，
+ * 这一段是"换一整套深色风格"。混在一起，后来的人不敢动任何一行。
+ */
+const darkSurfaceCss = `/* 深空墨蓝：表面色阶 + 亮点素材（取代 TDesign 的纯中性灰深色） */
+.theme-dark, .theme-dark page {${[...DARK_SURFACE, ...DARK_PAINT]
+  .map(([k, v]) => `${k}:${v};`)
+  .join('')}}`
 
 /* ── 色阶序校验：primary > secondary > placeholder > disabled ──────────
    修正 alpha 时最容易犯的错是把某一档调得比上一档还亮，于是"占位符比正文还
@@ -375,28 +618,136 @@ function checkCssSanity(name, css) {
 checkReadabilityOrder(
   darkBlocks,
   [...DARK_ONLY_FIXUPS, ...DARK_BRAND_BG, ...DARK_READABILITY],
-  '#242424',
+  // ⚠️ 底色是**新的卡片底**（DARK_SURFACE 的 gray-13），不是 TDesign 的 #242424。
+  // 留着旧值会算错：色阶序校验问的是"这几档文字压在真机上真正碰到的那个底上，
+  // 谁比谁醒目"，底选错 = 在一块不存在的底上排序，破了也发现不了。
+  '#141822',
   '深色',
 )
 checkCssSanity('dark.wxss 的可读性修正段', darkReadableCss)
+// 同一类事故的另一个入口：这一段的值里带 `linear-gradient(…%…)`，
+// 里面带逗号与百分号但没有分号/花括号 —— 一旦哪天有人把三元组写成两项，
+// 拼出来就是 `-:-;#:2;` 这种把整条规则作废的东西。
+checkCssSanity('dark.wxss 的表面色阶与亮点素材段', darkSurfaceCss)
 
 // 浅色也要声明 ${BRAND_ON_TINT}，值与 --td-brand-color 相同 ——
 // 不声明的话浅色下这个变量不存在，wxss 里的 var() 会回退到兜底色，
 // 而各处兜底色五花八门（有 #0052d9 有 #4582e6），浅色就会深浅不一。
 // 可读性修正同样要落在浅色上：TDesign 的 placeholder 在浅色下也只有 2.81:1。
-const lightBrandCss = `.page,page{${BRAND_ON_TINT}:var(--td-brand-color,#0052d9);${LIGHT_READABILITY.map(
+//
+// ⚠️ **这里刻意不写 `,#0052d9` 兜底**（2026-10-10）。原来写的是
+// `var(--td-brand-color,#0052d9)`，而 `--td-brand-color` 在浅色里**永远有定义**
+// ⇒ 那个兜底不可达、纯装饰。但 `check-mp-contrast.mjs` 的 resolveVar 是
+// "**有兜底就用兜底**"（TDesign 用兜底表达"本主题没覆盖"）⇒ 它会拿那句不可达的
+// `#0052d9` 当品牌字色的真值，于是**报告里的品牌色永远是旧的那一个**。
+// 浅色品牌换成靛蓝之后这就是一句谎：真实值是 #2f4bd6，闸门却在按 #0052d9 算。
+// 去掉兜底，两边算的就是同一个值。（wxss 使用处仍各自带 `, #0052d9` 兜底，没风险。）
+const lightBrandCss = `.page,page{${BRAND_ON_TINT}:var(--td-brand-color);${LIGHT_READABILITY.map(
   ([k, v]) => `${k}:${v};`,
 ).join('')}}`
 checkCssSanity('light.wxss 的品牌字色与可读性修正段', lightBrandCss)
 
-// 序校验：深色压深色卡片底 #242424，浅色压浅色页面底 #f3f3f3。
+/**
+ * 浅色「表面色阶 + 品牌 + 亮点素材」（2026-10-10）。
+ *
+ * ⚠️ **必须排在 `lightBlocks` 与 `lightBrandCss` 之后**：这一段改的是
+ * `--td-gray-color-1`（页面底）与 `--td-bg-color-secondarycontainer`，
+ * 而 TDesign 的浅色分支里那两个变量本身就在前面声明过。
+ *
+ * ⚠️ 尤其**不能**并进 `lightBrandCss`：那一段的语义是"品牌字色与可读性修正"
+ * （只碰文字色），这一段是"换一套浅色风格"（碰底色与描边）。混在一起之后
+ * 后来的人不敢动其中任何一行 —— 与深色那侧 `darkSurfaceCss` 单独成段同理。
+ */
+const lightSurfaceCss = `/* 冷调浅色：表面色阶 + 品牌 + 亮点素材（2026-10-10）
+ * ⚠️ 本段第一组里有一行是**拆别名**（--td-bg-color-secondarycontainer）：
+ *    TDesign 浅色分支里它与 --td-bg-color-page 都指向 --td-gray-color-1，
+ *    不显式覆写就永远与页面同色（"待办条背景没了"那个缺陷的根因）。
+ *    生成期与 e2e 各有一条判据守着它，别顺手删。 */
+.page,page{${[...LIGHT_BRAND, ...LIGHT_SURFACE, ...LIGHT_PAINT]
+  .map(([k, v]) => `${k}:${v};`)
+  .join('')}}`
+checkCssSanity('light.wxss 的表面色阶与亮点素材段', lightSurfaceCss)
+
+/**
+ * 浅色补齐段（`LIGHT_FIXUPS`）：把"只有深色分支定义过"的变量在浅色下显式声明。
+ *
+ * ⚠️ **必须排在 `lightBlocks` 之后**：它要压掉的正是 `_index.wxss` 里那个
+ * `@media (prefers-color-scheme:dark)` 段留下的值（系统深色时它照样生效）。
+ * 两者特异性相同（都是 `.page,page`），靠**源码顺序**决胜 ——
+ * 而 `app.wxss` 的 import 顺序里 `theme/light.wxss` 在 `_index.wxss` 之后。
+ */
+const lightFixupCss = `/* 浅色补齐：TDesign 深色分支独有的变量（不补 ⇒ 浅色主题依赖系统配色）
+ * 详见 gen-mp-theme.mjs 里 LIGHT_FIXUPS 的注释。 */
+.page,page{${LIGHT_FIXUPS.map(([k, v]) => `${k}:${v};`).join('')}}`
+checkCssSanity('light.wxss 的浅色补齐段', lightFixupCss)
+
+// 序校验：深色压深色卡片底，浅色压浅色**页面底**。
 // 底选错会算出相反的结论（深色那套黑字公式在浅色上是反的）。
+// ⚠️ 浅色的底跟着 `LIGHT_SURFACE` 走（2026-10-10 从 #f3f3f3 改成 #eff2f7）——
+// 写死旧值等于在一张不存在的底上排序，破了也发现不了。
 checkReadabilityOrder(
   lightBlocks,
   LIGHT_READABILITY,
-  '#f3f3f3',
+  '#eff2f7',
   '浅色',
 )
+
+/**
+ * 设计 token 表（阶段 C1）的**生成前体检**。
+ *
+ * 为什么要在生成阶段再挡一次，而不全交给 `check-mp-tokens.mjs`：
+ * 那个脚本是**事后**判据（生成物已经落地了）。而这里挡的是"表被改坏的那一瞬间"
+ * —— 网格破了、值写成裸变量名、名字拼错，都会直接产出一份**语法合法但语义错**
+ * 的 CSS，而 `checkCssSanity` 查不出来（它只管语法）。
+ *
+ * ⚠️ 特别挡住 `--drc-fg-muted: --td-text-color-placeholder` 这种写法：
+ * 它合法、能解析、不报错，但值是字符串而不是颜色 —— 用到它的地方会变成
+ * "没有颜色"，而界面上表现为**继承父级**，看上去只是"这一处没生效"。
+ */
+function checkTokens() {
+  const problems = []
+  const seen = new Set()
+  for (const t of TOKENS) {
+    if (!t.name.startsWith('--drc-')) problems.push(`${t.name}：token 必须用 --drc- 前缀`)
+    if (seen.has(t.name)) problems.push(`${t.name} 重复定义`)
+    seen.add(t.name)
+    if (!t.why || t.why.length < 8) problems.push(`${t.name} 缺"为什么有这一档" —— 下次重构会把它当冗余删掉`)
+    const v = String(t.value)
+    if (v.startsWith('--')) {
+      problems.push(`${t.name}: ${v} —— 引用变量必须写完整的 var(${v})，写裸变量名得到的是字符串不是颜色`)
+      continue
+    }
+    const ref = /^var\(--[a-z0-9-]+\)$/.exec(v)
+    if (ref) continue // 语义 token：值是引用，不参与网格
+    // 几何 / 字号：必须是网格的整数倍
+    const m = /^(\d+(?:\.\d+)?)rpx$/.exec(v)
+    if (!m) {
+      if (v !== '0') problems.push(`${t.name}: ${v} —— 既不是 0 也不是 Nrpx 也不是 var()`)
+      continue
+    }
+    const n = Number(m[1])
+    const gridExempt = t.grid === 'exempt'
+    if (GEOMETRY_GROUPS.includes(t.group) && !gridExempt && n % GRID_RPX !== 0) {
+      problems.push(`${t.name}: ${v} 不在 ${GRID_RPX}rpx（4px）网格上 —— 破了网格就没法"整体调一档"`)
+    }
+    if (gridExempt && n % GRID_RPX === 0) {
+      problems.push(`${t.name}: ${v} 标了 grid:'exempt' 但本身就在网格上 —— 那条豁免是多余的，删掉它`)
+    }
+    if (TYPE_GROUPS.includes(t.group) && n % TYPE_STEP_RPX !== 0) {
+      problems.push(`${t.name}: ${v} 不在 ${TYPE_STEP_RPX}rpx（2px）字号阶梯上`)
+    }
+  }
+  if (problems.length) {
+    console.error('theme/tokens.mjs 的表有问题（生成的 CSS 会语义错但语法对）：')
+    for (const p of problems) console.error('  · ' + p)
+    process.exit(1)
+  }
+}
+checkTokens()
+
+const tokenCss = `.page,page{${tokenDecls()}}`
+checkCssSanity('设计 token 段', tokenCss)
+const tokenCssDark = retarget(tokenCss, '.page,page', '.theme-dark,.theme-dark page')
 
 const lightHeader = `/* 生成物，不要手改 —— 重新生成：node scripts/gen-mp-theme.mjs
  *
@@ -405,7 +756,14 @@ const lightHeader = `/* 生成物，不要手改 —— 重新生成：node scri
  *      无条件生效。选择器与 TDesign 一样是 .page,page，所以深色分支也被压掉了 ——
  *      系统是深色也一样是白底深字。
  *
- * 共 ${lightBlocks.length} 段。
+ * 末尾另有一段 **设计 token（--drc-*）**，来自 theme/tokens.mjs（阶段 C1 的唯一事实源）。
+ *
+ * 还有一段 **冷调浅色（2026-10-10）**：表面色阶 + 品牌 + 亮点素材。
+ * ⚠️ 其中一行是**拆别名** —— TDesign 浅色分支把 --td-bg-color-page 与
+ * --td-bg-color-secondarycontainer 都指向 --td-gray-color-1，
+ * 不显式覆写后者，"贴在页面上的底色"就永远与页面同色。
+ *
+ * 共 ${lightBlocks.length} 段 + 品牌/可读性 1 段 + 冷调浅色 1 段 + 设计 token ${TOKENS.length} 项。
  */
 `
 
@@ -422,34 +780,120 @@ const darkHeader = `/* 生成物，不要手改 —— 重新生成：node scrip
  * 必须在 theme/light.wxss **之后** import：浅色表写在 page 上会向下继承，
  * 本文件靠"同特异性下靠后胜出"把它压掉。
  *
+ * 末尾另有一段 **设计 token（--drc-*）**，来自 theme/tokens.mjs。
+ * ⚠️ 它与浅色那份**逐项同名同值**，但选择器是 .theme-dark —— 几何与语义名
+ * 都不随主题变，所以两份只差选择器；语义 token 指到 --td-* 上，由本文件自己的
+ * 深浅变量给出不同的解析结果。
+ *
  * 共 ${darkBlocks.length} 段 + 1 段补齐（TDesign 深色分支缺 --td-shadow-4 与
- * --td-scrollbar-hover-color，不补会继承到浅色值，深色里就有一块浅色阴影）。
+ * --td-scrollbar-hover-color，不补会继承到浅色值，深色里就有一块浅色阴影）
+ * + 可读性修正 + **表面色阶与亮点素材（深空墨蓝，2026-10-09）**
+ * + 设计 token ${TOKENS.length} 项。
  */
 `
 
 const outputs = [
   {
     file: path.join(ROOT, 'theme/light.wxss'),
-    content: lightHeader + lightBlocks.join('\n') + '\n' + lightBrandCss + '\n',
-    desc: `浅色（默认）主题，${lightBlocks.length} 段`,
+    content:
+      lightHeader +
+      lightBlocks.join('\n') +
+      '\n' +
+      lightBrandCss +
+      '\n' +
+      lightSurfaceCss +
+      '\n' +
+      lightFixupCss +
+      '\n' +
+      tokenCss +
+      '\n',
+    desc:
+      `浅色（默认）主题，${lightBlocks.length} 段 + 表面色阶 ${LIGHT_SURFACE.length} 项 + ` +
+      `品牌 ${LIGHT_BRAND.length} 项 + 亮点素材 ${LIGHT_PAINT.length} 项 + ` +
+      `深色独有变量补齐 ${LIGHT_FIXUPS.length} 项 + 设计 token ${TOKENS.length} 项`,
   },
   {
     file: path.join(ROOT, 'theme/dark.wxss'),
-    content: darkHeader + darkBlocks.map((b) => retarget(b, '.page,page', '.theme-dark,.theme-dark page')).join('\n') + '\n' + darkFixupCss + '\n' + darkReadableCss + '\n',
-    desc: `深色主题，${darkBlocks.length} 段 + ${DARK_ONLY_FIXUPS.length} 段补齐 + ${DARK_READABILITY.length} 项可读性修正`,
+    content:
+      darkHeader +
+      darkBlocks.map((b) => retarget(b, '.page,page', '.theme-dark,.theme-dark page')).join('\n') +
+      '\n' +
+      darkFixupCss +
+      '\n' +
+      darkReadableCss +
+      '\n' +
+      darkSurfaceCss +
+      '\n' +
+      tokenCssDark +
+      '\n',
+    desc:
+      `深色主题，${darkBlocks.length} 段 + ${DARK_ONLY_FIXUPS.length} 段补齐 + ` +
+      `${DARK_READABILITY.length} 项可读性修正 + 表面色阶 ${DARK_SURFACE.length} 项 + ` +
+      `亮点素材 ${DARK_PAINT.length} 项 + 设计 token ${TOKENS.length} 项`,
   },
 ]
 
-// 变量覆盖对账：深色必须能定义浅色定义过的每一个变量，否则那个位置会露出浅色。
-// 这条断言的价值在于"TDesign 升级后"—— 新增变量忘了进深色分支，这里会报出来。
+// ── 变量覆盖对账（**两个方向都要**）──────────────────────────────────
+//
+// 这条断言的价值在于"TDesign 升级后"—— 新增变量忘了进另一套分支，这里会报出来。
+// 两个方向各对应一种**静默**后果：
+//   ① 浅色有、深色没有 ⇒ 深色下那个位置**露出浅色值**；
+//   ② 深色有、浅色没有 ⇒ 系统是深色时，`_index.wxss` 的 dark media 段
+//      会把深色值留给浅色主题 ⇒ **浅色主题的样子取决于系统配色**（2026-10-10 补的）。
 {
   const lightNames = varNames(lightBlocks)
   const darkNames = varNames(darkBlocks)
-  const missing = [...lightNames].filter((n) => !darkNames.has(n) && !DARK_ONLY_FIXUPS.some(([k]) => k === n))
-  if (missing.length) {
-    console.error('以下变量浅色有、深色没有（会在深色下露出浅色值）：')
-    for (const m of missing) console.error('  · ' + m)
-    console.error('若是 TDesign 新增的，补进 DARK_ONLY_FIXUPS 或等它修深色分支。')
+  // 本脚本自己追加的效果素材不算 TDesign 的覆盖面：它们本来就是**主题专属**的
+  // （深色有极光/辉光、浅色有环境光/环），不是"另一套漏了"。
+  const MATERIAL = new Set([
+    ...DARK_PAINT.map(([k]) => k),
+    ...LIGHT_PAINT.map(([k]) => k),
+    ...LIGHT_FIXUPS.map(([k]) => k),
+  ])
+  const problems = []
+
+  const lightOnly = [...lightNames].filter(
+    (n) => !darkNames.has(n) && !DARK_ONLY_FIXUPS.some(([k]) => k === n),
+  )
+  if (lightOnly.length) {
+    problems.push(
+      '浅色有、深色没有（会在深色下露出浅色值）：\n' +
+        lightOnly.map((m) => '    · ' + m).join('\n') +
+        '\n    若是 TDesign 新增的，补进 DARK_ONLY_FIXUPS 或等它修深色分支。',
+    )
+  }
+
+  const darkOnly = [...darkNames].filter(
+    (n) => !lightNames.has(n) && !MATERIAL.has(n) && !LIGHT_FIXUPS.some(([k]) => k === n),
+  )
+  if (darkOnly.length) {
+    problems.push(
+      '深色有、浅色没有（系统是深色时会把深色值留给浅色主题 ⇒ 浅色依赖系统）：\n' +
+        darkOnly.map((m) => '    · ' + m).join('\n') +
+        '\n    补进 LIGHT_FIXUPS 给一个浅色下该有的值。',
+    )
+  }
+
+  if (problems.length) {
+    console.error('主题变量覆盖对账失败：')
+    for (const p of problems) console.error('  ' + p)
+    process.exit(1)
+  }
+}
+
+/**
+ * `LIGHT_FIXUPS` / `DARK_ONLY_FIXUPS` 的键也要对账：写了一个 TDesign 里
+ * **两边都没有**的变量名，等于凭空造了一个没人用的声明（静默无害，但是垃圾）。
+ */
+{
+  const lightNames = varNames(lightBlocks)
+  const darkNames = varNames(darkBlocks)
+  const junk = []
+  for (const [k] of LIGHT_FIXUPS) if (!darkNames.has(k) && !lightNames.has(k)) junk.push(`LIGHT_FIXUPS 的 ${k}`)
+  for (const [k] of DARK_ONLY_FIXUPS) if (!lightNames.has(k) && !darkNames.has(k)) junk.push(`DARK_ONLY_FIXUPS 的 ${k}`)
+  if (junk.length) {
+    console.error('补齐清单里有两边都不存在的变量（TDesign 改名了？）：')
+    for (const j of junk) console.error('  · ' + j)
     process.exit(1)
   }
 }
@@ -459,6 +903,100 @@ for (const [k] of DARK_READABILITY) {
   if (!varNames(darkBlocks).has(k)) {
     console.error(`DARK_READABILITY 里的 ${k} 在 TDesign 深色分支里不存在 —— 这条修正是无效的`)
     console.error('（可能是 TDesign 改名了。确认后改掉这里的键名，或删掉这条。）')
+    process.exit(1)
+  }
+}
+
+/**
+ * 表面色阶要**覆盖**的变量必须真的存在于 TDesign 深色分支里（2026-10-09）。
+ *
+ * ⚠️ 这一条与上面 `DARK_READABILITY` 的那条是同一类事故，但危险方向相反：
+ * `DARK_READABILITY` 写错键名 ⇒ 多出一个没人用的变量（无害）；
+ * `DARK_SURFACE` 写错键名 ⇒ **页面底根本没换**，而生成物里那段看着好好的、
+ * 注释也写着"深空墨蓝" ⇒ 没人会发现深色其实还是 TDesign 的中性灰。
+ * 那正是"判据钉了一个不存在的东西"的形状。
+ *
+ * `DARK_PAINT` 反过来：它定义的 `--td-brand-gradient` 等是**本项目自己的**变量，
+ * TDesign 里本来就不该有，所以它走的是"必须不在 TDesign 里"的检查（见下）。
+ */
+{
+  const darkNames = varNames(darkBlocks)
+  const problems = []
+  for (const [k] of DARK_SURFACE) {
+    if (!darkNames.has(k)) {
+      problems.push(`DARK_SURFACE 里的 ${k} 在 TDesign 深色分支里不存在 —— 表面色阶没有覆盖到它`)
+    }
+  }
+  // 素材变量不许与 TDesign 同名：撞名会让"改素材"意外改到 TDesign 自己的取值上，
+  // 而那是全组件范围的改动，影响面远大于"改一个渐变"。
+  for (const [k] of DARK_PAINT) {
+    if (darkNames.has(k)) problems.push(`DARK_PAINT 里的 ${k} 与 TDesign 深色分支同名 —— 会覆盖它的原值`)
+  }
+  if (problems.length) {
+    console.error('深色表面色阶 / 亮点素材对账失败：')
+    for (const p of problems) console.error('  · ' + p)
+    console.error('（键名拼错是**静默失效**：CSS 合法、深色照旧，没人看得见。）')
+    process.exit(1)
+  }
+}
+
+/**
+ * 浅色表面色阶 / 亮点素材的对账（2026-10-10）。三条，各挡一种静默失效：
+ *
+ * ① `LIGHT_SURFACE` 的键必须在 TDesign 浅色分支里真的存在 —— 拼错了就**根本没换**，
+ *    而生成物里那段看着好好的、注释还写着"冷调浅色"。
+ * ② `LIGHT_PAINT` 的键不许与 TDesign 撞名（撞了就是全组件范围的意外改动）。
+ * ③ ⚠️ **浅色那个别名必须真的被拆开** —— 这是本轮浅色改版存在的全部理由。
+ *    `--td-bg-color-page` 与 `--td-bg-color-secondarycontainer` 在 TDesign 浅色分支里
+ *    是 `--td-gray-color-1` 的两份拷贝；拆别名的那一行被谁删掉，
+ *    两个变量立刻又变回同一个值，而**界面只是"某几条底色不见了"**：
+ *    没有任何东西会报错，`check-mp-contrast` 也照样全绿（它只算文字对比度）。
+ */
+{
+  const values = new Map()
+  for (const b of lightBlocks) {
+    for (const m of b.matchAll(/(--td-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) values.set(m[1], m[2].trim())
+  }
+  for (const [k, v] of [...LIGHT_BRAND, ...LIGHT_SURFACE, ...LIGHT_PAINT]) values.set(k, v)
+
+  const resolve = (name, depth = 0) => {
+    if (depth > 8) return null
+    const raw = values.get(name)
+    if (raw == null) return null
+    const m = /^var\(\s*(--td-[a-z0-9-]+)\s*(?:,\s*([\s\S]+))?\)$/.exec(raw)
+    if (!m) return String(raw).trim()
+    return m[2] ? String(m[2]).trim() : resolve(m[1], depth + 1)
+  }
+
+  const lightNames = varNames(lightBlocks)
+  const problems = []
+  for (const [k] of LIGHT_SURFACE) {
+    if (!lightNames.has(k)) {
+      problems.push(`LIGHT_SURFACE 里的 ${k} 在 TDesign 浅色分支里不存在 —— 这一档没有覆盖到它`)
+    }
+  }
+  for (const [k] of LIGHT_PAINT) {
+    if (lightNames.has(k)) problems.push(`LIGHT_PAINT 里的 ${k} 与 TDesign 浅色分支同名 —— 会覆盖它的原值`)
+  }
+
+  const page = resolve('--td-bg-color-page')
+  const sunken = resolve('--td-bg-color-secondarycontainer')
+  if (!page || !sunken) {
+    problems.push(
+      `浅色的 --td-bg-color-page / --td-bg-color-secondarycontainer 解析不出颜色（page=${page} / sunken=${sunken}）` +
+        ' —— 拆别名那条断言因此失效',
+    )
+  } else if (page.toLowerCase() === sunken.toLowerCase()) {
+    problems.push(
+      `浅色下 --td-bg-color-page 与 --td-bg-color-secondarycontainer 又都是 ${page} 了。\n` +
+        '    TDesign 浅色分支里这两个变量都指向 --td-gray-color-1，必须**显式覆写**后者才能拆开。\n' +
+        '    不拆的后果：贴在页面上的横幅/胶囊 "底色等于没画"（用户报过「待办条的背景也没了」），\n' +
+        '    而且**没有任何闸门会红** —— 对比度只算文字，算不出"这条底色看不见"。',
+    )
+  }
+  if (problems.length) {
+    console.error('浅色表面色阶 / 品牌 / 亮点素材对账失败：')
+    for (const p of problems) console.error('  · ' + p)
     process.exit(1)
   }
 }

@@ -1,0 +1,39 @@
+/* drc-empty —— 空态（阶段 C2）。颜色走 --drc-* token 并带字面兜底。 */
+
+.drc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--drc-space-8, 64rpx) var(--drc-space-3, 24rpx);
+  text-align: center;
+}
+
+.drc-empty-icon {
+  font-size: var(--drc-font-icon, 72rpx);
+  line-height: 1;
+  margin-bottom: var(--drc-space-3, 24rpx);
+  opacity: 0.55;
+}
+
+.drc-empty-title {
+  font-size: var(--drc-font-lg, 32rpx);
+  color: var(--drc-fg-primary, rgba(0, 0, 0, 0.9));
+  margin-bottom: var(--drc-space-1, 8rpx);
+}
+
+.drc-empty-desc {
+  font-size: var(--drc-font-sm, 24rpx);
+  color: var(--drc-fg-muted, rgba(0, 0, 0, 0.56));
+  line-height: 1.6;
+  max-width: 560rpx;
+}
+
+.drc-empty-action {
+  margin-top: var(--drc-space-4, 32rpx);
+}
+
+/* 没有内容时不占位：否则"没有动作的空态"底部会多出一块空白，
+   看着像样式没写对（实际上就是没写）。 */
+.drc-empty-action:empty {
+  margin-top: 0;
+}

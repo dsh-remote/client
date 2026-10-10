@@ -10,6 +10,9 @@
  * 显示错的类别比显示英文更糟，但宿主就是这么定的，跟它保持一致，
  * 原工具名仍留在副标题位（见 chat.js `_applyTool`），信息不丢。
  *
+ * ⚠️ 但"未知"的判定**不含大小写**：真机发的工具名是首字母大写的（Bash / Read），
+ * 压成小写再比（见 `activity()` 里那段）。原样比会让所有工具都落进 "tools"。
+ *
  * 小程序没有 Intl.Segmenter 依赖问题——这里只用纯字符串比较（indexOf/slice，
  * 与本目录其它 core 文件同一口径，不用 startsWith/endsWith）。
  */
@@ -32,30 +35,48 @@ var ACTIVITY_ZH = {
 }
 
 /**
- * 工具名 → 类别键。宿主原函数逐字移植（含 `_inspect` 后缀与
- * `terminal_` / `subagent_` 前缀两条规则）。
+ * 工具名 → 类别键。宿主原函数的分流规则逐字移植
+ * （含 `_inspect` 后缀与 `terminal_` / `subagent_` 前缀两条）。
+ *
+ * ⚠️ **入口先把名字压成小写**（2026-10-08 补，阶段 C3 核对文案机时抓到）。
+ *
+ * 移植过来的那张表只认小写（`read` / `bash` / `edit`…），而**真机发过来的工具名
+ * 是首字母大写的**（宿主内核给的就是 `Bash` / `Read` / `Edit` / `Write`；
+ * `carrier-services.ts` 直接透传 `data.name`，不改大小写；mock 内核自己两种都写过）。
+ * 于是真机上 `activity('Bash')` 落到 `return 'tools'` —— 界面上**每一个工具**
+ * 都显示「正在调用工具」，文案机等于没接。
+ *
+ * 而判据之所以一直没发现：它测的是**小写**的那几个名字（照宿主的移植源写的），
+ * 于是绿的那一侧与真机那一侧根本不是同一批输入。
+ *
+ * 压小写是**只放宽不收窄**的改法：表里所有键本来就是小写，
+ * 所以既有的每一次匹配都还成立，只是把真机那批名字也接住了。
  */
 function activity(name) {
-  if (name === 'read') return 'read'
-  if (name === 'read_image') return 'readImage'
-  if (name === 'grep' || name === 'glob' || (name && name.slice(-8) === '_inspect')) return 'search'
-  if (name === 'write') return 'write'
-  if (name === 'edit' || name === 'apply_patch') return 'edit'
+  var n = String(name == null ? '' : name).toLowerCase()
+  if (n === 'read') return 'read'
+  if (n === 'read_image') return 'readImage'
+  if (n === 'grep' || n === 'glob' || (n && n.slice(-8) === '_inspect')) return 'search'
+  if (n === 'write') return 'write'
+  if (n === 'edit' || n === 'apply_patch') return 'edit'
   if (
-    name === 'bash' ||
-    name === 'pwsh' ||
-    name === 'exec_command' ||
-    name === 'write_stdin' ||
-    (name && name.indexOf('terminal_') === 0)
+    n === 'bash' ||
+    n === 'pwsh' ||
+    n === 'exec_command' ||
+    n === 'write_stdin' ||
+    (n && n.indexOf('terminal_') === 0)
   )
     return 'commands'
-  if (name === 'run_code') return 'code'
-  if (name === 'web_search') return 'webSearch'
-  if (name === 'web_fetch') return 'webFetch'
-  if (name === 'subagent' || (name && name.indexOf('subagent_') === 0)) return 'subagents'
-  if (name === 'todo_write' || name === 'create_goal' || name === 'update_goal' || name === 'get_goal')
+  if (n === 'run_code') return 'code'
+  // ⚠️ 两种写法都要认：移植源那张表用的是 `web_search` / `web_fetch`（下划线），
+  // 而真机内核发的是 `WebSearch` / `WebFetch`（驼峰，压小写后是连写）。
+  // 只认前者的话，真机上这两个工具会掉进 "tools"。
+  if (n === 'web_search' || n === 'websearch') return 'webSearch'
+  if (n === 'web_fetch' || n === 'webfetch') return 'webFetch'
+  if (n === 'subagent' || (n && n.indexOf('subagent_') === 0)) return 'subagents'
+  if (n === 'todo_write' || n === 'todowrite' || n === 'create_goal' || n === 'update_goal' || n === 'get_goal')
     return 'plan'
-  if (name === 'ask_user_question' || name === 'request_user_input') return 'questions'
+  if (n === 'ask_user_question' || n === 'request_user_input') return 'questions'
   return 'tools'
 }
 

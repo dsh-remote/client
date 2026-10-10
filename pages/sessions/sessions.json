@@ -1,11 +1,13 @@
 {
-  "navigationBarTitleText": "DSH 远程控制",
+  "navigationBarTitleText": "DSH 助手",
   "enablePullDownRefresh": true,
   "usingComponents": {
-    "t-empty": "/miniprogram_npm/tdesign-miniprogram/empty/empty",
-    "t-button": "/miniprogram_npm/tdesign-miniprogram/button/button"
+    "t-button": "/miniprogram_npm/tdesign-miniprogram/button/button",
+    "drc-empty": "/components/drc-empty/drc-empty",
+    "drc-skeleton": "/components/drc-skeleton/drc-skeleton"
   },
   "componentPlaceholder": {
-    "t-empty": "view"
+    "drc-empty": "view",
+    "drc-skeleton": "view"
   }
 }

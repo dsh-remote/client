@@ -22,7 +22,18 @@
     <view class="dot {{barTheme}}"></view>
     <view class="bar-text ellipsis">{{barText}}</view>
     <view class="bar-gap"></view>
+    <!-- 模型名**只有这一处**。⚠️ 2026-10-08 教训：我在 composer 左段又放了一份，
+         用户报「模型重复显示」；我先删了顶栏那份，结果把 composer 整块改成了
+         另一个样子，用户又报输入区「很突兀」。⇒ 顶栏这一份留着（它是改动前就有的形态），
+         composer 回到原来的单行，模型不再进输入区。 -->
     <text wx:if="{{modelName}}" class="bar-model ellipsis">{{modelName}}</text>
+  </view>
+
+  <!-- 演示横幅：与 sessions 页那条同一句话（取自 `core/demo.js`，两页共用一份）。
+       常驻而不是 toast —— "这些是不是真对话"必须每一帧都看得见。 -->
+  <view wx:if="{{demo}}" class="demo-strip">
+    <view class="demo-dot"></view>
+    <text class="demo-text">{{demoBanner}}</text>
   </view>
 
   <!-- 瞬时提示（重试 / 压缩，见 chat.js 的 notice）。
@@ -39,7 +50,11 @@
        混进消息流会和步骤组互相踩；而排队消息在底部输入区上方，两边天然不打架。
        默认收起只报进度（2/5），点一下展开全文，点消息区任意处自动收回 ——
        一屏就一屏的内容，常驻展开会挤掉正在看的正文。没有待办时整块不占地方。 -->
-  <block wx:if="{{todos.length}}">
+  <!-- ⚠️ **全做完就整块收掉**（2026-10-08 用户报"待办完成了还在"）。
+       原条件只看 `todos.length`：内核发完 10 条、10 条都 completed 时它仍挂着"待办 10/10"，
+       而那一刻这一轮其实已经没什么可等的了 —— 留着它是在说一件已经做完的事
+       （2026-06 用户复访报的同一族）。新出现的待办会让条件重新成立，所以它会自己回来。 -->
+  <block wx:if="{{todos.length && todoDone < todos.length}}">
     <!-- 重设计（2026-10-05 用户："todo 界面太丑"）。留的是层级重排：
          计数用等宽数字，"在进行哪条"给主文字色 + medium（旧版三种字号挨在一起，
          糊成一行分不出主次）；展开/收起用"文字 + 三角"，降到最次要。
@@ -93,8 +108,12 @@
     <view class="pad">
       <!-- 历史头：读到了 / 在读 / 读不到，三种说法必须分开。
            把"读不到"显示成"这个会话没内容"，用户会以为会话真的是空的 —— 那是假事实。 -->
+      <!-- 读历史期间出**骨架**而不是一颗转圈（§9.8 冷启动）。
+           为什么换：一颗圈只说"在转"，骨架说"马上会来的是这个形状"——而这一页
+           首屏要来的正是一列消息条。⚠️ 那一行"正在读取主机上的历史…"**保留**：
+           它说的是**事实**（在读主机的历史），骨架只是说形状，两件事不重复。 -->
       <view wx:if="{{historyState === 'loading'}}" class="hist">
-        <view class="hist-spin"></view>
+        <drc-skeleton rows="4" />
         <text class="hist-text muted">正在读取主机上的历史…</text>
       </view>
 
@@ -143,9 +162,11 @@
       <block wx:for="{{blocks}}" wx:key="key">
         <view class="blk" id="b{{item.key}}">
 
+          <!-- 轮次分隔：⚠️ **不再显示「第 N 轮」**（用户 2026-08-08：「第几轮文本不要，保留分割线」）。
+               留下的那条线已经说清"这里换了一轮"，而那行字在每轮顶部重复一次、
+               读起来像日志。保留时间（几点开始这一轮）与那条分割线。 -->
           <view wx:if="{{item.kind === 'turn'}}" class="turn">
-            <view class="turn-label">{{item.label}}</view>
-            <view class="turn-time mono">{{item.time}}</view>
+            <view wx:if="{{item.time}}" class="turn-time mono">{{item.time}}</view>
             <view class="turn-line"></view>
           </view>
 
@@ -163,6 +184,10 @@
               <view wx:if="{{item.images && item.images.length}}" class="user-images">附件 {{item.images.length}} 项</view>
               <view wx:if="{{item.text}}" class="user-text">{{item.text}}</view>
             </view>
+            <!-- ⚠️ 没发出去的那一条要**自己说出来**（2026-08-09 用户："没有发送消息提示没发出去，
+                 会造成误解"）。回显是在发出去之前就画进流里的，不标出来它和成功的一模一样。
+                 只写一句短话：原因那一长串留给 toast，用户要的是"知道没发出去"。 -->
+            <view wx:if="{{item.failed}}" class="user-failed">没发出去</view>
           </view>
 
           <!-- 步骤组：「想 → 调工具 → 再想」聚成一条。整段**默认不渲染**。
@@ -234,9 +259,16 @@
                       data-b="{{index}}"
                       data-i="{{ii}}"
                       bindtap="onToggleTool">
+                      <!-- 四态按**语义**分派（取证 `__status`：
+                           pending / in_progress / failed / cancelled），
+                           不是按协议原样转发。`started`/`args` 都并进 in_progress
+                           —— 那是既有决定（②b：两者刻意同形），这里只是换了个能说出口的名字。
+                           `cancelled` 是新增的一态：主机被中断时工具调用是"被停掉的"，
+                           画成 failed 会让用户以为它坏了（它只是没跑完）。 -->
                       <view class="step-tick {{it.phase}}">
                         <text wx:if="{{it.phase === 'completed'}}">✓</text>
                         <text wx:elif="{{it.phase === 'failed'}}">✕</text>
+                        <text wx:elif="{{it.phase === 'cancelled'}}">⊘</text>
                         <text wx:else>·</text>
                       </view>
                       <view class="step-main">
@@ -278,6 +310,13 @@
                ⚠️ 两支的 `wx:if` 都要**独立**（不能是上一支的 `wx:elif`）：
                上一支 `item.kind==='text'` 成立时，后面按 kind 分支就永远不执行了。 -->
           <view wx:if="{{item.kind === 'text'}}" class="reply-row">
+            <!-- ⚠️ 这一段在 2026-10-08 被**推翻重排**（V3-PLAN §2.3 取证）：
+                 助手正文不再是"左对齐的圆角卡片"，而是**通栏、无底色、无描边、无圆角**。
+                 取证原文：assistant-content{background:transparent; border:0; border-radius:0;
+                 box-shadow:none; max-width:100%; padding:0}。
+                 理由不是审美：这一页的主要内容就是长篇技术正文，卡片把它切碎、
+                 每段都换一次底色，眼睛要重新适应两次；而手机那篇（WorkBuddy）就是这么排的。 -->
+
             <!-- 长按复制（与用户气泡同一套）。绑在 .reply 上而不是里面的
                  rich-text / text 上：那有两支（mdBodies 有 / 没有），各绑一遍
                  就是同一个动作两个地方管。 -->
@@ -304,11 +343,14 @@
                      用纯文本显示 —— 它们本来就是符号，纯文本与最终态一致。
                      ⚠️ 它必须在正文**之后**：暂扣区按定义就是最后一段。 -->
                 <text wx:if="{{item.mdPending}}" class="md-pending">{{item.mdPending}}</text>
-                <text wx:if="{{!item.done}}" class="caret"></text>
               </block>
-              <!-- 没有 mdBodies：首帧（正文刚到、还没排出 nodes）或渲染退回。 -->
+              <!-- 没有 mdBodies：首帧（正文刚到、还没排出 nodes）或渲染退回。
+                   ⚠️ 两支都**不再挂光标**（2026-10-08 推翻重排）：取证里那句
+                   「流式表现：**没有光标**，用文案机代替」是 WorkBuddy 的实测结论——
+                   逐帧闪的竖条在正文里读起来是"内容的一部分"，而底部那句
+                   「正在整理答案」才是"这件事还在进行"的事实。 -->
               <block wx:else>
-                <text user-select>{{item.text}}</text><text wx:if="{{!item.done}}" class="caret"></text>
+                <text user-select>{{item.text}}</text>
               </block>
             </view>
           </view>
@@ -320,6 +362,21 @@
         </view>
       </block>
 
+      <!-- 「正在X」文案机（2026-10-08 推翻重排新增）。
+           为什么它替代光标：取证里那句「流式表现：没有光标。用文案机代替」——
+           一根逐帧闪的竖条在正文里会被读成内容的一部分，而"正在做什么"是**另一层**信息，
+           它该独立成一行、且能被余光扫到。
+           四句都取自取证：正在整理答案 / 正在继续处理 / 深度思考中 / 资料搜集中。
+           ⚠️ 短句、动词开头、无主语（§2.3 文案纪律）；没有第五种状态时整块不渲染。 -->
+      <view wx:if="{{runStatus}}" class="runbar">
+        <view class="typing">
+          <view class="typing-dot"></view>
+          <view class="typing-dot"></view>
+          <view class="typing-dot"></view>
+        </view>
+        <text class="runbar-text">{{runStatus}}</text>
+      </view>
+
       <!-- 滚动锚点：**两个静态 id** 轮流指，而不是"同一个元素换 id"。
            后者要赌"元素改名"与"scroll-into-view 生效"谁先落到渲染层上，
            赌输了 scroll-view 会查不到目标节点、静默不滚 —— 「回到最新」点了没反应
@@ -328,22 +385,6 @@
       <view id="anchor-b" class="anchor"></view>
     </view>
   </scroll-view>
-
-  <!-- 用户往上回看过：给一条回到最新的路，但不打扰他。
-       有审批/提问浮层或附件行时它让位 —— 都浮在输入区上方，不让位就会压在一起。
-       （附件行 .attach 就在输入区正上方，按钮按输入区高度定位，两者重叠。）
-       2026-10-04 用户要求换个时兴样式：从「居中灰药丸 + 圆点 + 文字」改成
-       **右下角品牌色悬浮圆钮 + CSS 箭头**（IM/微信自己的「回到最新」就是这个形状）：
-       不占一行、不挡正文，落底即隐。箭头是两条 border 转 45° 画的，
-       不引图标库（这一页目前一个图标组件都没用）。 -->
-  <view
-    wx:if="{{!atBottom && !pendingPermission && !pendingQuestion && !attachCount}}"
-    class="jump"
-    hover-class="jump--pressed"
-    hover-stay-time="80"
-    bindtap="onJumpLatest">
-    <view class="jump-arrow"></view>
-  </view>
 
   <!-- 审批卡。catchtap：面板里的空白也算"输入区"，点在它上面不该收键盘 -->
   <view wx:if="{{pendingPermission}}" class="panel" catchtap="onNoop">
@@ -369,16 +410,34 @@
       <view wx:if="{{pendingPermission.reason}}" class="reason">{{pendingPermission.reason}}</view>
     </view>
 
+    <!-- 审批三颗按钮的形态（2026-10-08 用户裁决："两颗粘在一起了"）：
+         ① **只有一颗实心主按钮**（允许一次），「始终允许」是白底描边的次级按钮，
+            否则两颗同款实心蓝并排就是一整条色块，中间那条缝会被眼睛读成"分栏线"
+            而不是"两颗按钮"；
+         ② 间距由 `.actions` 的负边距 + 每颗 `.act` 的右边距**逐颗**给（旧写法只给
+            danger 那颗加了 margin-left，于是两颗实心按钮之间是 0 间距）；
+         ③ 三颗等宽：`flex: 1 1 auto` 对 4/4/2 字的文案都够（文案已改短，见宿主侧
+            APPROVAL_OPTIONS 的注释）。
+         类名映射按 id 分派（不按顺序猜）：reject → danger，approve-session → 白按钮，
+         其余（approve / 老主机没给 id 的兜底）→ 主按钮。 -->
     <view class="actions">
       <view
         wx:for="{{pendingPermission.options}}"
         wx:key="id"
-        class="act {{item.id === 'reject' ? 'act-danger' : 'act-primary'}}"
+        class="act {{item.id === 'reject' ? 'act-danger' : (item.id === 'approve-session' ? 'act-secondary' : 'act-primary')}}"
         hover-class="pressed"
         hover-stay-time="80"
         data-decision="{{item.id}}"
         bindtap="onPermissionTap">{{item.label}}</view>
     </view>
+
+    <!-- 「始终允许」的 scope 说明。它**不能省**：按钮上写「始终允许」，
+         用户会以为是永久的，而真实边界只是**本次会话内**（宿主侧
+         `allowed-session` 那条记表随 stop() 清空）。文案从按钮挪到这里，
+         是为了让三颗按钮并排时不挤（V3-PLAN §9.1 的"界面上必须把 scope
+         写出来"仍然成立，只是换了一行承载）。
+         只在主机真的发了 approve-session 时才渲染（老主机两颗按钮没有这行）。 -->
+    <view wx:if="{{pendingPermission.sessionHint}}" class="act-hint">「始终允许」仅限本次会话内的同类操作，会话结束即失效</view>
   </view>
 
   <!-- 提问卡 -->
@@ -448,7 +507,55 @@
 
   <!-- 输入区：左侧两个附件入口（加号=图片、旁边=文件）+ 胶囊输入框 + 右侧「发送」。
        catchtap：点输入框本身不该被外层当成"点了空白"而收键盘 -->
+  <!-- composer：2026-10-08 **推翻重做**（V3-PLAN §2.3 取证 `ChatInputBar`）。
+       取证那一颗是「一整个 24px 圆角胶囊（inset 描边 + 大投影）」，胶囊**内部**分两段：
+       上 textarea、下 toolbar；`toolbar-left` = 语音/模型/连接器/@助理，
+       `toolbar-right` = ＋ → 发送/停止。
+
+       我们只抄形状与分工（§3.2「抄形状不抄规模」）：
+       · 左 = **模型只读 chip**（内核只给读不给写，做成可点的下拉是"长了个没反应的东西"）
+         与**草稿提示**（有草稿时那一行说"上次没发出去的"）；
+       · 右 = **＋（附件）** 与**发送/停止同一槽位**；
+       · textarea 用 `<textarea>`（取证 `max-height:300rpx`）——旧版是单行 `<input>`，
+         多行指令要看得见自己写了什么。
+
+       ⚠️ 发送/停止**同槽位**这条不许改（2026-05-05 用户裁决）：同一个动作两个入口，
+       用户会怀疑哪个才是真的，而且拇指不用为了停一次而挪位置。 -->
+  <!-- 输入区：2026-10-08 **回到改动前的单行形态**。
+       ⚠️ 用户两次报它「很突兀 / 严重变形、圆角太大、间隙太大，还不如原来的样式」。
+       根因是我给胶囊加了投影 + 描边 + 两行布局 —— 在这个页面里，
+       内容块（卡片）才用容器，**输入区不是内容块**，它是一块操作面。
+       ⇒ 恢复：扁平的一行 [＋] [输入框] [发送/中断]，胶囊只有底色没有框。
+       保留的只有一处改动：`<input>` 换成 `<textarea>`（多行指令看得见自己写了什么），
+       样式与原来那个 input 等高。 -->
   <view class="composer" catchtap="onNoop">
+    <!-- 「回到最新」那颗现在是 **composer 的子元素**（2026-10-08）。
+         ⚠️ 它原来在消息区里、用 `position: fixed` + 猜出来的 bottom 定位，
+         于是输入区一变形它就"一半在文本框上、一半在消息上"（用户报）。
+         放进 composer 之后 `bottom: 100%` 永远贴着输入区上沿。
+         ⚠️ `catchtap` 在 composer 上：点在它上面不该顺带收键盘，它自己有 bindtap。 -->
+    <!-- 用户往上回看过：给一条回到最新的路，但不打扰他。
+       有审批/提问浮层或附件行时它让位 —— 都浮在输入区上方，不让位就会压在一起。
+       （附件行 .attach 就在输入区正上方，按钮按输入区高度定位，两者重叠。）
+       2026-10-04 用户要求换个时兴样式：从「居中灰药丸 + 圆点 + 文字」改成
+       **右下角品牌色悬浮圆钮 + CSS 箭头**（IM/微信自己的「回到最新」就是这个形状）：
+       不占一行、不挡正文，落底即隐。箭头是两条 border 转 45° 画的，
+       不引图标库（这一页目前一个图标组件都没用）。 -->
+    <view
+      wx:if="{{!atBottom && !pendingPermission && !pendingQuestion && !attachCount}}"
+      class="jump"
+      hover-class="jump--pressed"
+      hover-stay-time="80"
+      bindtap="onJumpLatest">
+      <view class="jump-arrow"></view>
+    <!-- 流式环：取证 `scroll-to-bottom-button(--visible,--streaming,__ring)`——
+         正在流的时候那颗键自己转起来，于是"它还活着"这件事不必靠文案说。
+         ⚠️ 与 `runbar` 的分工：环说"这一条还在写"，`runbar` 说"写到哪一步了"。 -->
+      <view wx:if="{{streaming}}" class="jump-ring"></view>
+    <!-- 往上翻的时候新到几条：取证里那颗键带计数，我们把它做成角标。
+         数不清时（比如一次性补了 40 条）显示「40+」而不是把键撑宽。 -->
+      <view wx:if="{{newCount > 0}}" class="jump-badge">{{newCount > 40 ? '40+' : newCount}}</view>
+  </view>
     <!-- 加号：相册选图。用户 1.1.5 明确要求"直接进相册"，所以它不做二级菜单。 -->
     <view class="composer-plus" hover-class="pressed" hover-stay-time="60" bindtap="onAttach">
       <view class="plus-bar"></view>
@@ -457,6 +564,11 @@
       <view wx:if="{{attachCount > 0}}" class="plus-badge">{{attachCount}}</view>
     </view>
     <view class="composer-pill">
+      <!-- ⚠️ 这里回到改动前的 `<input>`（2026-10-08）。
+           换成 `<textarea auto-height>` 之后输入框会**自己长高**：那一行贴在上沿、
+           下面留一大片白（用户报「最下面留白太多」），而它与写死的 `height: 88rpx`
+           本来就互相打架 —— `auto-height` 说"按内容"，`height` 说"就 88rpx"。
+           ⇒ 多行这件事等它真的碍事了再说；现在先把单行这个**已被验证过**的形态还回去。 -->
       <input
         class="composer-input"
         placeholder="输入指令…"
@@ -466,12 +578,12 @@
         cursor-spacing="24"
         confirm-type="send"
         bindfocus="onInputFocus"
+        bindblur="onInputBlur"
         bindinput="onInput"
         bindconfirm="onSend" />
     </view>
-    <!-- 同一个键，两种身份（2026-10-05 用户：执行中不许提交，发送键变中断键）。
-         不在别处再挂一颗：同一个动作有两个入口，用户会怀疑哪个才是真的，
-         而且拇指不用为了停一次而挪位置。执行中它不再是"发出去"，是"停下来"。 -->
+    <!-- 同一个键，两种身份（2026-05-05 用户裁决：执行中不许提交，发送键变中断键）。
+         不在别处再挂一颗：同一个动作有两个入口，用户会怀疑哪个才是真的。 -->
     <view
       wx:if="{{running}}"
       class="composer-send composer-stop"
@@ -488,5 +600,5 @@
       bindtap="onSend">
       <text class="send-label">发送</text>
     </view>
-  </view>
+</view>
 </view>

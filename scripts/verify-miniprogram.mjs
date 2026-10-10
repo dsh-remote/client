@@ -12,7 +12,16 @@
  *   3. app.json 里的每个页面对应的 .js/.json/.wxml/.wxss 四件套都在；
  *   4. app.json 开着按需注入（lazyCodeLoading=requiredComponents），且**不声明**全局 usingComponents；
  *   5. 每个页面 usingComponents 里的组件路径能解析到文件；
- *   6. 非第三方的小程序 JS 通过 `node --check`（语法级）。
+ *   6. 非第三方的小程序 JS 通过 `node --check`（语法级）；
+ *   7. **每个 .wxml 的标签配对**（2026-10-08 用户报编译错误后补）。
+ *
+ * ## 为什么第 7 条是这一天最值钱的
+ *
+ * 我把一段 wxml 从页面中间挪进另一个容器时，把一句 `<!-- …` 的注释**漏了闭合**，
+ * 于是下一个 `<view>` 被吞进注释，标签总数少了一个。
+ * 开发者工具报的是 `get tag end without start, near '</view>'` —— 而
+ * **前面六条检查全绿**：JSON 能解析、四件套都在、组件路径能解析、JS 语法也对。
+ * 也就是说"编译不过"这一整类错误，此前**没有任何一道闸**在看。
  *
  * 只做"能确定对错"的判定。样式、真机交互、主题生效这类只能靠截图与探针的事，
  * 不在这里假装覆盖。
@@ -137,10 +146,67 @@ walk(MP_ROOT, (file) => {
   }
 })
 
+// ── 7. wxml 标签配对 ───────────────────────────────────────────────────
+/**
+ * 数标签的配对。
+ *
+ * ⚠️ **先剥注释**：一段没闭合的 `<!--` 会把后面所有内容都算成注释，
+ * 而它的后果恰恰是标签对不上 —— 不剥的话这里既报不出错、又会误报。
+ * 先剥一次，再数，才能让"少了一个 `</view>`"这种错露出来。
+ *
+ * ⚠️ 自闭合标签（`<view ... />`、`input` 这类）不压栈；`textarea` 在小程序里
+ * 是**显式闭合**的（`<textarea …></textarea>`），所以它按普通标签算。
+ */
+function tagBalance(text) {
+  // ⚠️ **没闭合的注释要单独报**（2026-10-08 补，而且是实测出来的）：
+  // 一个 `<!--` 少了 `-->`，正则 `/<!--[\s\S]*?-->/` 会从它一路吃到**下一个** `-->`，
+  // 于是中间整段（包括若干标签）都被当成注释剥掉 —— 标签数**恰好配平**，
+  // 这条检查于是报"OK"。而开发者工具报的是 `get tag end without start`。
+  // ⇒ 先数开合：开多于闭就是没闭合，那一段后面的所有内容都不可信。
+  const opens = (text.match(/<!--/g) ?? []).length
+  const closes = (text.match(/-->/g) ?? []).length
+  if (opens > closes) {
+    return { unclosed: [], mismatch: { tag: '!--', top: `注释没闭合（开了 ${opens} 个，闭了 ${closes} 个）`, line: text.indexOf('<!--') ? text.slice(0, text.lastIndexOf('<!--')).split('\n').length + 1 : 1 } }
+  }
+  const code = text.replace(/<!--[\s\S]*?-->/g, '').replace(/<!DOCTYPE[^>]*>/gi, '')
+  const stack = []
+  let mismatch = null
+  const VOID_SELF_CLOSED = /\/>\s*$/
+  for (const m of code.matchAll(/<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g)) {
+    const [full, close, tag, , selfClose] = m
+    if (VOID_SELF_CLOSED.test(full)) continue
+    const line = code.slice(0, m.index).split('\n').length
+    if (close) {
+      const top = stack.pop()
+      if (top !== tag && !mismatch) mismatch = { tag, top, line }
+    } else {
+      stack.push(tag)
+    }
+  }
+  return { unclosed: stack, mismatch }
+}
+
+let wxmlCount = 0
+walk(ROOT, (file) => {
+  const rel = path.relative(MP_ROOT, file)
+  if (rel.startsWith('miniprogram_npm' + path.sep) || rel.startsWith('node_modules')) return
+  if (!file.endsWith('.wxml')) return
+  wxmlCount += 1
+  const { unclosed, mismatch } = tagBalance(readFileSync(file, 'utf8'))
+  if (mismatch) {
+    problems.push(
+      `${rel}:${mismatch.line} 标签配对错位：遇到 </${mismatch.tag}>，但栈顶是 <${mismatch.top ?? '(空)'}> —— ` +
+        '这一类错误开发者工具才会报，别的检查一条都查不出来',
+    )
+  } else if (unclosed.length > 0) {
+    problems.push(`${rel} 有没闭合的标签：<${unclosed.join('> <')}>`)
+  }
+})
+
 // ── 汇总 ────────────────────────────────────────────────────────────────
 const summary =
   `检查了 ${jsonCount} 个 JSON、${(appJson.pages ?? []).length} 个页面、` +
-  `${componentCount} 个组件引用、${jsCount} 个自研 JS`
+  `${componentCount} 个组件引用、${jsCount} 个自研 JS、${wxmlCount} 个 wxml 标签配对`
 if (problems.length > 0) {
   console.error(`[verify-miniprogram] ${problems.length} 个问题（${summary}）：`)
   for (const problem of problems) console.error(`  ✗ ${problem}`)

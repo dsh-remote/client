@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/client",
-  "version": "2.0.21",
+  "version": "3.0.6",
   "private": true,
   "description": "DSH Remote Control 的微信小程序客户端：扫码配对主机，发指令、看流式输出、回答审批。",
   "license": "MIT",
@@ -28,13 +28,17 @@
     "node": ">=20"
   },
   "scripts": {
-    "check": "npm run verify && npm run md && npm run scroll && npm run theme:check && npm run contrast",
+    "check": "npm run verify && npm run md && npm run tokens && npm run components && npm run scroll && npm run theme:check && npm run contrast && npm run copy:check",
     "verify": "node scripts/verify-miniprogram.mjs",
     "md": "node --test scripts/check-markdown.mjs",
+    "tokens": "node --test scripts/check-mp-tokens.mjs",
+    "components": "node --test scripts/check-mp-components.mjs",
     "theme": "node scripts/gen-mp-theme.mjs",
     "theme:check": "node scripts/gen-mp-theme.mjs --check",
     "contrast": "node scripts/check-mp-contrast.mjs",
-    "scroll": "node --test scripts/check-scroll.mjs"
+    "scroll": "node --test scripts/check-scroll.mjs",
+    "copy": "node scripts/gen-mp-copy.mjs",
+    "copy:check": "node scripts/gen-mp-copy.mjs --check"
   },
   "dependencies": {
     "tdesign-miniprogram": "^1.10.0",
